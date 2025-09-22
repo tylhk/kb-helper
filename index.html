@@ -1,0 +1,70 @@
+<!doctype html>
+<html>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self';
+                 img-src 'self' https: data:;
+                 style-src 'self' 'unsafe-inline';
+                 script-src 'self';
+                 frame-src 'self' https:;" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KB Helper</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+  <div id="toastWrap" class="toast-wrap"></div>
+  <div id="confirmWrap" class="modal hidden">
+    <div class="modal-inner">
+      <div class="modal-title">确认操作</div>
+      <div class="modal-form">
+        <div id="confirmMsg"></div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="confirmCancel">取消</button>
+        <button type="button" id="confirmOk" class="primary">确定</button>
+      </div>
+    </div>
+  </div>
+  <div id="app">
+    <aside class="sidebar">
+      <div class="logo">KB Helper</div>
+      <div class="new-wrap">
+        <button id="newBtn" class="new-btn primary">＋ 新建</button>
+        <div id="newMenu" class="dropdown hidden">
+          <button data-new="link">新建链接</button>
+          <button data-new="folder">新建文件夹</button>
+        </div>
+      </div>
+      <div class="search"><input id="q" placeholder="搜索(标题/URL/标签)" /></div>
+      <div class="section">
+        <div class="section-title">Library</div>
+        <ul id="folderList" class="tree"></ul>
+      </div>
+    </aside>
+    <main class="main">
+      <section class="list" id="resourceList"></section>
+    </main>
+    <div id="splitter" class="splitter" title="拖动调整左右区域宽度"></div>
+    <section class="preview">
+      <button id="previewMaxBtn" class="fs-btn" title="预览最大化">⤢</button>
+      <div id="viewerHost" style="position:absolute; inset:44px 0 0 0"></div>
+    </section>
+  </div>
+  <div id="modal" class="modal hidden">
+    <div class="modal-inner">
+      <div class="modal-title" id="modalTitle">新建</div>
+      <form id="modalForm" class="modal-form"></form>
+      <div class="modal-actions">
+        <button type="button" id="modalCancel">取消</button>
+        <button type="submit" form="modalForm" id="modalOk" class="primary">
+          确定
+        </button>
+      </div>
+    </div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+
+</html>

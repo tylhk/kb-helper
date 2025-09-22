@@ -1,0 +1,832 @@
+:root {
+  --bg: #121316;
+  --fg: #e5e7eb;
+  --muted: #9ca3af;
+  --panel: #181a1f;
+  --line: #22252b;
+  --acc: #3b82f6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    Segoe UI,
+    Roboto,
+    Helvetica,
+    Arial,
+    "Apple Color Emoji",
+    "Segoe UI Emoji";
+}
+
+#app {
+  display: grid;
+  grid-template-columns: 260px minmax(550px, 1fr) 6px var(--preview-w, 38%);
+  height: 100vh;
+}
+.main, .preview {
+  min-width: 240px;
+  overflow: hidden;
+}
+.preview, .preview webview, .preview iframe {
+  width: 100%;
+  max-width: 100%;
+}
+.sidebar {
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 14px;
+  overflow: auto;
+}
+
+.logo {
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  opacity: 0.9;
+  margin-bottom: 10px;
+}
+
+.new-wrap {
+  position: relative;
+  margin-bottom: 10px;
+}
+
+.new-btn {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--acc);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.dropdown {
+  position: absolute;
+  top: 44px;
+  left: 0;
+  width: 100%;
+  background: #0f1115;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  z-index: 10;
+}
+
+.dropdown.hidden {
+  display: none;
+}
+
+.dropdown button {
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--fg);
+  border: 0;
+  cursor: pointer;
+}
+
+.dropdown button:hover {
+  background: #0e0f12;
+}
+
+.search input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #0e0f12;
+  color: var(--fg);
+}
+
+.section {
+  margin-top: 16px;
+}
+
+.section-title {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin: 6px 0 8px;
+}
+
+.tree li {
+  list-style: none;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+}
+
+.tree li:hover {
+  background: #0e0f12;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.list {
+  overflow: auto;
+  padding: 8px 12px;
+}
+
+.card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #22252b;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  background: #0f1115;
+  transition:
+    transform 0.08s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+  cursor: pointer;
+}
+
+.card:hover {
+  border-color: #3b82f6;
+  box-shadow:
+    0 6px 24px rgba(0, 0, 0, 0.35),
+    0 0 0 2px rgba(59, 130, 246, 0.12);
+  transform: translateY(-1px);
+}
+
+.card .meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.badges {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border: 1px solid #2a2f37;
+  border-radius: 999px;
+  color: #cbd5e1;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+}
+
+.actions button {
+  background: #13161b;
+  color: #cbd5e1;
+  border: 1px solid #2a2f37;
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.preview {
+  background: #0b0c0f;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #22252b;
+  border-radius: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 50;
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-inner {
+  width: min(520px, 92vw);
+  background: #0f1115;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.modal-title {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.modal-form {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0 6px;
+}
+
+.modal-form .row {
+  display: grid;
+  gap: 6px;
+}
+
+.modal-form input,
+.modal-form select {
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #0e0f12;
+  color: var(--fg);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.modal-actions button {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #13161b;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.modal-actions .primary {
+  background: var(--acc);
+  color: #fff;
+}
+
+.tagbox {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #0e0f12;
+}
+
+.tagbox input {
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+  padding: 6px;
+  min-width: 120px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid #2a2f37;
+  border-radius: 999px;
+}
+
+.chip .x {
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.suggest {
+  position: relative;
+}
+
+.suggest-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2px;
+  background: #0f1115;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: auto;
+  max-height: 220px;
+  z-index: 60;
+}
+
+.suggest-menu.hidden {
+  display: none;
+}
+
+.suggest-item {
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.suggest-item:hover,
+.suggest-item.active {
+  background: #0e0f12;
+}
+
+.toast-wrap {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 80;
+}
+
+.toast {
+  background: #0f1115;
+  color: var(--fg);
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  border-radius: 10px;
+  min-width: 220px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.toast.error {
+  border-color: #ef4444;
+}
+
+.folder-item {
+  position: relative;
+}
+
+.folder-item.drag-over {
+  background: #0e0f12;
+  transition: background 0.12s ease;
+}
+
+.folder-item .drop-line {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  background: #3b82f6;
+  border-radius: 2px;
+  display: none;
+}
+
+.folder-item.show-top .drop-line {
+  display: block;
+  top: -1px;
+}
+
+.folder-item.show-bottom .drop-line {
+  display: block;
+  bottom: -1px;
+}
+
+.drag-ghost {
+  opacity: 0.8;
+  transform: scale(0.98);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.card.selected {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.card:active {
+  transform: translateY(1px);
+}
+
+.tree {
+  text-align: left;
+  padding-left: 0;
+  margin-left: 0;
+}
+
+.folder-menu.hidden {
+  display: none;
+}
+
+.folder-menu>div {
+  padding: 8px 12px;
+  cursor: pointer;
+  color: #e5e7eb;
+}
+
+.folder-menu>div:hover {
+  background: #0e0f12;
+}
+
+.folder-menu>div.danger {
+  color: #f87171;
+}
+
+.splitter {
+  background: linear-gradient(to right, transparent, #22252b, transparent);
+  cursor: col-resize;
+  user-select: none;
+  position: relative;
+  z-index: 3;
+}
+
+.splitter:hover {
+  background: linear-gradient(to right, transparent, #2f3440, transparent);
+}
+
+body.resizing {
+  cursor: col-resize;
+}
+
+.tree,
+.tree * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body.resizing webview {
+  pointer-events: none !important;
+}
+
+body.resizing,
+body.resizing * {
+  user-select: none !important;
+}
+
+.tree .root-entry {
+  padding-left: 0px;
+}
+.tree .root-entry .folder-row { grid-template-columns: 0 minmax(0,1fr) 28px; }
+
+.root-entry {
+  position: relative;
+}
+
+.root-entry .root-plus {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  line-height: 22px;
+  border-radius: 6px;
+  background: #1a1c21;
+  border: 1px solid #2a2d34;
+  color: #9aa4b2;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  text-align: center;
+}
+
+.root-entry .root-plus:hover {
+  background: #23262d;
+  color: #ced6e0;
+}
+/* 禁止全局横向滚动，布局一律在容器内自适应 */
+html, body { overflow-x: hidden; }
+
+/* 右侧预览区域不允许超出容器宽度 */
+.preview, .preview webview { max-width: 100%; width: 100%; }
+
+/* 中间与右侧容器在拖动时也不允许撑破容器 */
+.middle, .preview { min-width: 240px; overflow: hidden; }
+/* 列表卡片的动作按钮区固定大小，不压缩 */
+.card .actions{
+  display:flex; gap:8px; flex-wrap: nowrap;
+  align-items:center; justify-content:flex-end;
+}
+.card .actions button{ flex:0 0 auto; white-space: nowrap; }
+
+/* 标题不换成两列：单行 + 省略号 */
+.card .title, .item-title{
+  display:block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* 链接文字可被挤压，但同样单行省略 */
+.card .url, .item-url{
+  display:block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* 整个中间列表区域不允许按钮被挤换行 */
+.middle .list-row{ display:flex; align-items:center; gap:12px; }
+.middle .list-row .meta{ flex: 1 1 auto; min-width: 0; } /* 允许文本压缩 */
+.middle .list-row .actions{ flex: 0 0 auto; }
+/* 出现/消失动画 */
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeSlideOut {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-4px); }
+}
+.tree .anim-in { animation: fadeSlideIn .18s ease both; }
+.tree .anim-out{ animation: fadeSlideOut .14s ease both; }
+/* 打开任意下拉/弹层时，禁用 webview 点击，防止点穿 */
+body.menu-open webview {
+  pointer-events: none !important;
+}
+/* ====== Folder disclosure arrow & collapsible animation ====== */
+
+/* 行为反馈：仅名称可筛选列表，箭头负责展开/收起 */
+.tree .folder-name{
+  display: block;         /* 让 overflow-x 生效 */
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 有子目录的项：名称前留一点距离，保持对齐 */
+.tree .has-children .folder-name {
+  margin-left: 0;
+}
+
+/* 三点菜单按钮与行内对齐 */
+.tree .kebab {
+  margin-left: 6px;
+}
+
+/* ===== 拖拽预览：插入线 / 并为子文件夹 ===== */
+.folder-item{ position:relative; }
+.folder-item .drop-line{
+  position:absolute; left: 20px; right: 8px; height:2px;
+  background: var(--acc); border-radius:2px; display:none;
+}
+.folder-item.show-top .drop-line{ display:block; top:-1px; }
+.folder-item.show-bottom .drop-line{ display:block; bottom:-1px; }
+
+/* “并为子文件夹”的预览：行高亮 + 左侧指示钩 */
+.folder-item.as-child > .folder-row{
+  background: rgba(59,130,246,0.16);
+  outline: 1px dashed rgba(59,130,246,0.55);
+  border-radius:8px;
+}
+.folder-item.as-child::before{
+  content:"↳"; position:absolute; left: 6px; top:50%; transform:translateY(-50%);
+  color: var(--acc); font-size:14px; opacity:.9;
+}
+
+body.menu-open webview{ pointer-events:none !important; }
+
+/* 拖拽文件夹时，禁用 hover 造成的闪烁/动画 */
+body.dragging-folder .folder-item:hover { background: inherit; }
+body.dragging-folder .kebab { opacity: 0 !important; }
+body.dragging-folder .folder-item { transition: none !important; }
+/* 拖拽时禁用树上的过渡/hover，避免闪烁 */
+body.dragging-folder .tree * { transition: none !important; }
+body.dragging-folder .folder-item:hover { background: inherit !important; }
+body.dragging-folder .kebab { opacity: 0 !important; }
+
+/* 只高亮当前行，不把子级也罩黑 */
+.tree .folder-row.active {
+  background: #0e0f12;
+  border-radius: 8px;
+  font-weight: 700;
+  padding: 4px 8px;
+}
+/* 行与行之间留点距，避免黑底看起来像一个大块 */
+.tree .folder-item { margin: 2px 0; }
+/* 统一缩进：不在 <li> 上叠加 padding，改为只给 .folder-row 加 */
+.tree .depth-1, .tree .depth-2, .tree .depth-3, .tree .depth-4 { padding-left: 0 !important; }
+
+
+/* 箭头与名称左对齐 */
+.tree .folder-arrow { justify-self: start; }
+.tree .folder-name  { justify-self: start; }
+
+/* 深度缩进只作用在“行”，不要给 li 叠加 */
+.tree li { padding-left: 0; }
+.tree .depth-1 > .folder-row { padding-left:  8px; }
+.tree .depth-2 > .folder-row { padding-left: 20px; }
+.tree .depth-3 > .folder-row { padding-left: 32px; }
+.tree .depth-4 > .folder-row { padding-left: 44px; }
+
+/* 简洁箭头：默认向下，展开后向上；只旋转伪元素，防止 360° */
+.tree .folder-arrow{
+  appearance:none; -webkit-appearance:none;
+  width:16px; height:16px; padding:0; margin:0;
+  background:none; border:none; cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center;
+  color:#cbd5e1; transform:none !important;
+}
+.tree .folder-arrow::before{
+  content:""; display:block; width:8px; height:8px; background:currentColor;
+  -webkit-clip-path: polygon(0% 25%, 15% 25%, 50% 75%, 85% 25%, 100% 25%, 50% 90%);
+          clip-path: polygon(0% 25%, 15% 25%, 50% 75%, 85% 25%, 100% 25%, 50% 90%);
+  transition: transform .22s ease;
+}
+.tree .folder-item.expanded > .folder-row .folder-arrow::before{
+  transform: rotate(180deg);
+}
+
+/* 统一折叠/展开动画：默认折叠为 0，高度用 JS 写入像素值，opacity 平滑 */
+.tree .children{
+  overflow: hidden;
+  max-height: 0;      /* 折叠默认 0，由 JS 在展开时写具体像素 */
+  opacity: 0;
+  transition: max-height .38s cubic-bezier(.2,.8,.2,1), opacity .24s ease;
+}
+
+/* --- 固定：浮动菜单用 left/top，对齐到按钮右缘，并禁用历史 right --- */
+.folder-menu.floating-menu{
+  position: fixed !important;
+  z-index: 9999 !important;
+  right: auto !important;
+  width: max-content;
+  max-width: 280px;
+  white-space: nowrap;
+  max-height: 60vh;
+  overflow: auto;
+  box-shadow: 0 8px 28px rgba(0,0,0,.28);
+  border-radius: 8px;
+  background: #0f1115;
+  border: 1px solid var(--line);
+}
+
+/* === FIX: 统一目录行三列网格 & 三点按钮右对齐 === */
+.tree .folder-row{
+  display: grid;
+  grid-template-columns: 16px minmax(0,1fr) 28px;
+  align-items: center;
+  column-gap: 8px;
+  min-height: 28px;
+  padding: 4px 8px;
+  width: 100%;
+  transition: background-color .16s ease, color .16s ease;
+}
+
+.tree .folder-row .kebab{
+  justify-self: end;
+  pointer-events: none;
+  width: 24px; height: 24px; line-height: 22px;
+  background:#13161b; border:1px solid #2a2f37; color:#cbd5e1;
+  border-radius:8px; cursor:pointer;
+  opacity: 0; transition: opacity .15s;
+}
+.folder-row:hover .kebab{ pointer-events: auto; }
+.folder-row:hover .kebab { opacity: 1; }
+/* 暗色计数徽章：不抢眼 */
+.count-badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  height:16px;
+  min-width:16px;
+  padding:0 6px;
+  margin-left:6px;
+  border-radius:999px;
+  background:#1a1c21;
+  border:1px solid #2a2d34;
+  color:#9aa4b2;
+  font-size:11px;
+  line-height:16px;
+}
+.tree .depth-1:not(:has(.folder-row)) { padding-left: 8px; }
+.tree .folder-item.expanded > .children { 
+  opacity: 1 !important; 
+  max-height: 9999px !important; 
+}
+.tree .arrow-spacer { width:16px; height:16px; }
+.empty-tip { color: var(--muted); padding: 24px 8px; }
+.tree li{ padding: 0 !important; }
+.tree li:hover{ background: none !important; }
+.tree .folder-row:hover {
+  background: #0e0f12;
+  border-radius: 8px;
+}
+/* 根目录的 + 默认隐藏，仅在悬浮行时显示，行为和 .kebab 一致 */
+.root-entry .root-plus {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .15s;
+}
+.root-entry .folder-row:hover .root-plus {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* 拖拽时强制隐藏，避免抖动（与 .kebab 同步） */
+body.dragging-folder .root-plus {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+.card.empty-tip { text-align: center; cursor: default; }
+.card.empty-tip .empty-tip-link { cursor: pointer; text-decoration: underline; }
+.card.empty-tip .empty-tip-link:hover { text-decoration: none; }
+/* 名称容器与文字都允许压缩 */
+.tree .name-wrap{
+  display: flex;
+  grid-template-columns: minmax(0,1fr) auto;
+  align-items: center;
+  column-gap: 6px;
+  min-width: 0;
+}
+.tree .folder-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 三点按钮占固定宽度，不被挤走（你已有宽度和右对齐的规则，可保留） */
+.tree .folder-row .kebab { justify-self: end; }
+
+/* 选中时：允许横向滚动查看全名 */
+.tree .folder-row.active .folder-name{
+  overflow-x: auto;
+  text-overflow: clip;
+}
+/* 可选：滚动条更细一些 */
+.tree .folder-row.active .folder-name::-webkit-scrollbar { height: 8px; }
+/* 让 .preview 能放置悬浮控件 */
+.preview { position: relative; }
+
+/* 左上角最大化按钮 */
+.fs-btn{
+  position: absolute;
+  left: 10px; top: 10px;
+  z-index: 5;
+  border: 1px solid var(--line);
+  background: #13161b;
+  color: #cbd5e1;
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  opacity: .9;
+}
+.fs-btn:hover{ opacity: 1; }
+
+/* 进入预览最大化态：隐藏左侧/中间/分割线，让预览占满窗口 */
+body.preview-max { overflow: hidden; }
+body.preview-max #app{
+  grid-template-columns: 0 0 0 1fr !important;
+}
+body.preview-max .sidebar,
+body.preview-max .main,
+body.preview-max #splitter { display: none !important; }
+body.preview-max .preview{
+  grid-column: 1 / -1;
+  width: 100vw; height: 100vh;
+}
+body.preview-max #viewerHost { inset: 0 !important; }
+/* 顶部提示条（类似浏览器 F11 全屏提示） */
+.fs-hint{
+  position: fixed;
+  top: 0; left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  background: rgba(15,17,21,.96);
+  color: #e5e7eb;
+  border: 1px solid #2a2f37;
+  border-top: none;
+  padding: 10px 14px;
+  border-radius: 0 0 10px 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  font-size: 13px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+.fs-hint.show{ opacity: 1; }
+/* 进入预览最大化后，不再显示按钮（只用 ESC 退出） */
+body.preview-max .fs-btn { display: none !important; }
+/* overlay：无边框的预览专用窗口，仅显示预览区 */
+body.overlay .titlebar,
+body.overlay .topbar,
+body.overlay .splitter,
+body.overlay .middle,
+body.overlay .sidebar { display: none !important; }
+
+body.overlay .preview {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+}
+body.preview-max.fs-hinting #viewerHost { inset: 44px 0 0 0 !important; }

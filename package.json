@@ -1,0 +1,71 @@
+{
+    "name": "kb-helper",
+    "version": "0.1.0",
+    "description": "基于 Electron 的知识/链接收集工具",
+    "main": "main.js",
+    "type": "module",
+  
+    "scripts": {
+      "start": "electron .",
+      "dev": "electronmon .",
+      "postinstall": "electron-builder install-app-deps",
+      "pack": "electron-builder --dir",
+      "dist": "electron-builder",
+      "dist:win": "electron-builder --win nsis"
+    },
+  
+    "dependencies": {
+      "electron-store": "^9.0.0"
+    },
+  
+    "devDependencies": {
+      "electron": "^31.7.7",
+      "electron-builder": "^24.13.3",
+      "electronmon": "^2.0.3"
+    },
+  
+    "build": {
+      "appId": "com.example.kbhelper",
+      "productName": "KB Helper",
+  
+      "directories": {
+        "buildResources": "build",
+        "output": "dist"
+      },
+  
+      "files": [
+        "**/*",
+        "!**/*.map",
+        "!**/test{,s}/**",
+        "!**/__tests__/**",
+        "!**/*.md",
+        "!node_modules/.cache/**",
+        "!dist/**"
+      ],
+      "asar": true,
+  
+      "win": {
+        "target": [
+          { "target": "nsis", "arch": ["x64"] }
+        ],
+        "icon": "build/icon.ico",
+        "artifactName": "${productName}-${version}-win-${arch}.${ext}"
+      },
+  
+      "nsis": {
+        "oneClick": false,
+        "allowToChangeInstallationDirectory": true,
+        "createDesktopShortcut": true,
+        "createStartMenuShortcut": true,
+        "shortcutName": "KB Helper"
+      },
+  
+      "protocols": [
+        {
+          "name": "KB Helper Link",
+          "schemes": ["kb-helper"]
+        }
+      ]
+    }
+  }
+  

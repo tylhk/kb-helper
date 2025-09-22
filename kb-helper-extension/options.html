@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>保存到 串口助手 - 选项</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 20px; }
+    textarea { width: 520px; height: 220px; font-family: ui-monospace, Menlo, Consolas, monospace; }
+    .row { margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <h2>常用文件夹</h2>
+  <div class="row">
+    <p>每行一个完整路径，例如：</p>
+    <pre>学习
+学习/项目A
+工作/待阅读</pre>
+  </div>
+  <div class="row">
+    <textarea id="folders"></textarea>
+  </div>
+  <div class="row">
+    <button id="save">保存</button>
+    <span id="msg" style="margin-left:10px;"></span>
+  </div>
+  <script>
+    (async () => {
+      const { favoriteFolders = [] } = await chrome.storage.sync.get("favoriteFolders");
+      document.getElementById('folders').value = (favoriteFolders || []).join('\n');
+    })();
+
+    document.getElementById('save').addEventListener('click', async () => {
+      const raw = document.getElementById('folders').value || '';
+      const list = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+      await chrome.storage.sync.set({ favoriteFolders: Array.from(new Set(list)) });
+      document.getElementById('msg').textContent = '已保存';
+      setTimeout(() => document.getElementById('msg').textContent = '', 1200);
+    });
+  </script>
+</body>
+</html>
