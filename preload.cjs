@@ -66,3 +66,16 @@ contextBridge.exposeInMainWorld('api', {
   importJson:     ()                            => ipcRenderer.invoke('db:import'),
   exportJson:     ()                            => ipcRenderer.invoke('db:export'),
 });
+contextBridge.exposeInMainWorld('auth', {
+  whoami:   ()            => ipcRenderer.invoke('auth:whoami'),
+  login:    (payload)     => ipcRenderer.invoke('auth:login', payload),      // {username,password}
+  logout:   ()            => ipcRenderer.invoke('auth:logout'),
+  register: (payload)     => ipcRenderer.invoke('auth:register', payload),   // {username,email,password}
+  fetchCloud: () => ipcRenderer.invoke('auth:fetch-cloud'),
+  syncNow:  (localState)  => ipcRenderer.invoke('auth:sync-now', localState) // {resources,folders,tags}
+});
+contextBridge.exposeInMainWorld('ops', {
+  onChanged: (cb) => ipcRenderer.on('ops:changed', (_e, payload) => {
+    if (typeof cb === 'function') cb(payload);
+  })
+});

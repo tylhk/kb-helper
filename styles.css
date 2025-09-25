@@ -830,3 +830,50 @@ body.overlay .preview {
   height: 100vh;
 }
 body.preview-max.fs-hinting #viewerHost { inset: 44px 0 0 0 !important; }
+.logo{ display:flex; align-items:center; gap:8px; }
+.account-btn{
+  padding:6px 10px; border:1px solid var(--line); border-radius:8px;
+  background:#13161b; color:#cbd5e1; cursor:pointer;
+}
+#accountMenu .item{
+  width:100%; text-align:left; padding:10px 12px; border:0; background:transparent; color:var(--fg); cursor:pointer;
+}
+#accountMenu .item:hover{ background:#0e0f12; }
+/* 让侧栏不裁剪超出内容（如你的侧栏有 overflow:hidden 就换成可见） */
+.sidebar { overflow: visible; }
+
+.logo { position: relative; z-index: 2; }
+#accountBox { position: relative; z-index: 3; }
+
+/* 账户下拉菜单：用 fixed + 高 z-index 压过侧栏内容 */
+#accountMenu.dropdown{
+  position: fixed;              /* 改成 fixed */
+  z-index: 9999;                /* 比新建按钮高 */
+  background: #0b0d10;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0,0,0,.5);
+  padding: 6px;
+}
+#accountMenu .item{ width:100%; text-align:left; padding:10px 12px; border:0; background:transparent; color:var(--fg); cursor:pointer; }
+#accountMenu .item:hover{ background:#0e0f12; }
+.btn{
+  padding:8px 14px; border:1px solid var(--line); border-radius:10px;
+  background:#0b0d10; color:var(--fg); cursor:pointer;
+}
+.btn:hover{ filter:brightness(1.05); }
+.btn.primary{
+  background:#2563eb; border-color:#2563eb; color:#fff;
+}
+.json-view{
+  width:100%;
+  height:60vh;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:#0b0d10;
+  color:var(--fg);
+  padding:10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:13px;
+  line-height:1.55;
+}

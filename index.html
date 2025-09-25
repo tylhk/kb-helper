@@ -29,7 +29,13 @@
   </div>
   <div id="app">
     <aside class="sidebar">
-      <div class="logo">KB Helper</div>
+      <div class="logo">
+        KB Helper
+        <div id="accountBox" style="margin-left:auto; position:relative;">
+          <button id="accountBtn" class="account-btn" title="账户">账户</button>
+          <div id="accountMenu" class="dropdown hidden" style="right:0; left:auto; top:36px; width:240px;"></div>
+        </div>
+      </div>      
       <div class="new-wrap">
         <button id="newBtn" class="new-btn primary">＋ 新建</button>
         <div id="newMenu" class="dropdown hidden">

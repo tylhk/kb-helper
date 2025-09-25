@@ -11,9 +11,54 @@ const store = new Store({
     defaults: {
         resources: [],   // { id, url, title, folder, tags:[], createdAt, updatedAt }
         folders: [],     // ["学习","学习/项目A", ...]
-        tags: []         // ["前端","Electron", ...]
+        tags: [],         // ["前端","Electron", ...]
+        auth: { token: null, user: null, server: '' }, // 新增：登录态
+        ops: []                                     // 新增：操作日志（增删改移动）
     }
 });
+
+const WP_BASE = 'https://satone1008.cn';
+
+async function callWP(method, path, body, token) {
+    const url = `${WP_BASE}${path}`;
+    const res = await fetch(url, {
+        method,
+        headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        body: body ? JSON.stringify(body) : undefined
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+    return data;
+}
+function notifyChanged(type, payload) {
+    try {
+        if (win && !win.isDestroyed()) {
+            win.webContents.send('ops:changed', { type, payload, ts: Date.now() });
+        }
+    } catch { }
+}
+let _autoSyncTimer = null;
+async function triggerAutoSync() {
+    clearTimeout(_autoSyncTimer);
+    _autoSyncTimer = setTimeout(async () => {
+        try {
+            const auth = store.get('auth') || {};
+            if (!auth.token) return; // 未登录就不自动同步
+            const localNow = {
+                resources: store.get('resources') || [],
+                folders: store.get('folders') || [],
+                tags: store.get('tags') || [],
+            };
+            // 直接把本地当前快照传上去（服务端仍会做幂等保存）
+            await callWP('POST', '/wp-json/kbhelper/v1/data', localNow, auth.token);
+        } catch (e) {
+            console.error('auto-sync failed:', e);
+        }
+    }, 1000); // 1s 去抖
+}
 
 // --------------------------- 窗口 ---------------------------
 let win, preview;
@@ -175,7 +220,7 @@ ipcMain.handle('overlay:open', async (_e) => {
         x: b.x, y: b.y, width: b.width, height: b.height,
         frame: false, resizable: false, movable: false,
         minimizable: false, maximizable: false,
-        skipTaskbar: false,focusable: true, show: false,
+        skipTaskbar: false, focusable: true, show: false,
         backgroundColor: '#000000',
         webPreferences: { contextIsolation: true, sandbox: true }
     });
@@ -383,54 +428,54 @@ function registerProtocol() {
 }
 ipcMain.handle('win:resize:free', () => {
     if (!win) return false;
-    try { win.setResizable(true); } catch {}
-    try { win.setMaximizable(true); } catch {}
-    try { if (process.platform === 'darwin') win.setMovable(true); } catch {}
-    try { win.setMinimumSize(1, 1); } catch {}
-    try { win.setMaximumSize(0, 0); } catch {} // 0,0 表示不限制
+    try { win.setResizable(true); } catch { }
+    try { win.setMaximizable(true); } catch { }
+    try { if (process.platform === 'darwin') win.setMovable(true); } catch { }
+    try { win.setMinimumSize(1, 1); } catch { }
+    try { win.setMaximumSize(0, 0); } catch { } // 0,0 表示不限制
     return true;
-  });
-  
-  // 恢复原约束 + 必要时把窗口“抬”到最小尺寸（退出预览填充满后调用）
-  ipcMain.handle('win:resize:restore', () => {
+});
+
+// 恢复原约束 + 必要时把窗口“抬”到最小尺寸（退出预览填充满后调用）
+ipcMain.handle('win:resize:restore', () => {
     if (!win) return false;
-  
+
     // 兜底：若 INITIAL_SIZE_POLICY 还没初始化，就用当前窗口的约束作为恢复值
     const curMin = (typeof win.getMinimumSize === 'function') ? win.getMinimumSize() : [1, 1];
     const curMax = (typeof win.getMaximumSize === 'function') ? win.getMaximumSize() : [0, 0];
-    const policy  = INITIAL_SIZE_POLICY || {
-      resizable: win.isResizable?.() ?? true,
-      maximizable: win.isMaximizable?.() ?? true,
-      min: curMin,
-      max: curMax
+    const policy = INITIAL_SIZE_POLICY || {
+        resizable: win.isResizable?.() ?? true,
+        maximizable: win.isMaximizable?.() ?? true,
+        min: curMin,
+        max: curMax
     };
-  
-    try { win.setResizable(!!policy.resizable); } catch {}
-    try { win.setMaximizable(!!policy.maximizable); } catch {}
+
+    try { win.setResizable(!!policy.resizable); } catch { }
+    try { win.setMaximizable(!!policy.maximizable); } catch { }
     try {
-      const [minW, minH] = policy.min || [1, 1];
-      win.setMinimumSize(Math.max(1, minW), Math.max(1, minH));
-    } catch {}
+        const [minW, minH] = policy.min || [1, 1];
+        win.setMinimumSize(Math.max(1, minW), Math.max(1, minH));
+    } catch { }
     try {
-      const [maxW, maxH] = policy.max || [0, 0];
-      win.setMaximumSize(maxW || 0, maxH || 0); // 0,0 = 不限制
-    } catch {}
-    try { if (process.platform === 'darwin') win.setMovable(!!policy.resizable); } catch {}
-  
+        const [maxW, maxH] = policy.max || [0, 0];
+        win.setMaximumSize(maxW || 0, maxH || 0); // 0,0 = 不限制
+    } catch { }
+    try { if (process.platform === 'darwin') win.setMovable(!!policy.resizable); } catch { }
+
     // 关键：如果当前尺寸小于最小值，主动把窗口抬到最小值
     try {
-      const [curW, curH] = win.getSize();
-      const [minW, minH] = policy.min || [1, 1];
-      const needW = Math.max(curW, minW);
-      const needH = Math.max(curH, minH);
-      if (needW !== curW || needH !== curH) {
-        win.setSize(needW, needH);
-      }
-    } catch {}
-  
+        const [curW, curH] = win.getSize();
+        const [minW, minH] = policy.min || [1, 1];
+        const needW = Math.max(curW, minW);
+        const needH = Math.max(curH, minH);
+        if (needW !== curW || needH !== curH) {
+            win.setSize(needW, needH);
+        }
+    } catch { }
+
     return true;
-  });
-  
+});
+
 // --------------------------- IPC（渲染层调用） ---------------------------
 // 读全量状态
 ipcMain.handle('win:set-locked', (_e, flag) => {
@@ -496,6 +541,150 @@ ipcMain.handle('win:set-fullscreen', (_e, flag) => {
     try { if (process.platform === 'darwin') win.setMovable(!next ? true : false); } catch { }
     return next;
 });
+// ========== 认证 ==========
+ipcMain.handle('auth:whoami', () => {
+    return store.get('auth') || { token: null, user: null, server: WP_BASE };
+});
+
+ipcMain.handle('auth:login', async (_e, { username, password }) => {
+    const data = await callWP('POST', '/wp-json/kbhelper/v1/auth/login', { username, password });
+    store.set('auth', { token: data.token, user: data.user, server: WP_BASE });
+    return true;
+});
+
+ipcMain.handle('auth:logout', async () => {
+    store.set('auth', { token: null, user: null, server: WP_BASE });
+    return true;
+});
+
+ipcMain.handle('auth:register', async (_e, payload) => {
+    await callWP('POST', '/wp-json/kbhelper/v1/auth/register', payload);
+    return true;
+});
+
+// ========== 同步（合并去重：集合并集，含中文规范化） ==========
+
+// 资源去重：优先 id，其次 url（忽略大小写）
+// 资源去重（优先 id，否则按 url 小写）
+function uniqueByIdOrUrl(list) {
+    const seen = new Map();
+    for (const r of (Array.isArray(list) ? list : [])) {
+        const key = r?.id ? `id:${r.id}` : `url:${(r?.url || '').toLowerCase()}`;
+        if (!seen.has(key)) seen.set(key, r);
+    }
+    return Array.from(seen.values());
+}
+
+// 把 "\u535a\u5ba2" 或 "u535au5ba2" 变回真实中文
+function decodeUnicodeish(str) {
+    if (typeof str !== 'string') return '';
+    let s = str;
+    s = s.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+    s = s.replace(/\bu([0-9a-fA-F]{4})\b/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+    return s.trim();
+}
+
+// 逐段规范化一个文件夹路径
+function normFolderPath(p) {
+    if (typeof p !== 'string') return '';
+    const parts = p.split('/').map(seg => decodeUnicodeish(String(seg).trim())).filter(Boolean);
+    return parts.join('/');
+}
+
+// 把任意输入转成标准 {resources, folders, tags}（中文已规范）
+function normalizeState(s) {
+    const o = s || {};
+    const folders = new Set();
+    for (const f of (Array.isArray(o.folders) ? o.folders : [])) {
+        const n = normFolderPath(f);
+        if (n) folders.add(n);
+    }
+    const tags = new Set(
+        (Array.isArray(o.tags) ? o.tags : [])
+            .map(t => decodeUnicodeish(String(t).trim()))
+            .filter(Boolean)
+    );
+    const resources = (Array.isArray(o.resources) ? o.resources : []).map(r => {
+        const rr = { ...r };
+        if (rr.folder) rr.folder = normFolderPath(rr.folder);
+        if (Array.isArray(rr.tags)) rr.tags = rr.tags.map(t => decodeUnicodeish(String(t).trim())).filter(Boolean);
+        return rr;
+    });
+    return { resources, folders: Array.from(folders), tags: Array.from(tags) };
+}
+
+// 把 A+B 做并集（已先各自规范化）
+function unionState(a, b) {
+    const A = normalizeState(a);
+    const B = normalizeState(b);
+    return {
+        resources: uniqueByIdOrUrl([...(A.resources || []), ...(B.resources || [])]),
+        folders: Array.from(new Set([...(A.folders || []), ...(B.folders || [])])),
+        tags: Array.from(new Set([...(A.tags || []), ...(B.tags || [])])),
+    };
+}
+
+// 根据资源反推“应存在”的文件夹集合（自动补齐祖先路径）
+function recomputeFoldersFromResources(resources) {
+    const set = new Set();
+    for (const r of (resources || [])) {
+        const p = String(r.folder || '').trim();
+        if (!p) continue;
+        const segs = p.split('/').filter(Boolean);
+        let acc = '';
+        for (const s of segs) {
+            acc = acc ? `${acc}/${s}` : s;
+            set.add(acc);
+        }
+    }
+    return Array.from(set);
+}
+
+// 仅查看云端（给“查看云端数据”按钮用）
+ipcMain.handle('auth:fetch-cloud', async () => {
+    const auth = store.get('auth') || {};
+    if (!auth.token) throw new Error('未登录');
+    const remote = await callWP('GET', '/wp-json/kbhelper/v1/data', null, auth.token);
+    return normalizeState(remote);
+});
+
+// 立即同步：本地 + 云端 + 当前本地存储 => 规范化后并集去重，然后回写两端
+ipcMain.handle('auth:sync-now', async (_e, local) => {
+    const auth = store.get('auth') || {};
+    if (!auth.token) throw new Error('未登录');
+
+    // 取云端并规范化
+    const remoteRaw = await callWP('GET', '/wp-json/kbhelper/v1/data', null, auth.token);
+    const remote = normalizeState(remoteRaw);
+
+    // 取本地 store、渲染端快照并规范化
+    const storeSafe = normalizeState({
+        resources: store.get('resources'),
+        folders: store.get('folders'),
+        tags: store.get('tags'),
+    });
+    const localSafe = normalizeState(local);
+
+    // 并集
+    let merged = unionState(storeSafe, unionState(localSafe, remote));
+
+    // 关键：从资源反推出应有的 folders，但与原有 folders 取并集，避免清空“暂时没有资源”的空目录
+    const foldersFromRes = recomputeFoldersFromResources(merged.resources);
+    merged.folders = Array.from(new Set([...(merged.folders || []), ...foldersFromRes]));
+
+
+    // 保存到本地
+    const before = JSON.stringify(storeSafe);
+    store.set('resources', merged.resources);
+    store.set('folders', merged.folders);
+    store.set('tags', merged.tags);
+    const changed = before !== JSON.stringify(merged);
+
+    // 回写云端
+    await callWP('POST', '/wp-json/kbhelper/v1/data', merged, auth.token);
+
+    return { changed, merged };
+});
 
 ipcMain.handle('db:get-state', () => ({
     resources: store.get('resources') || [],
@@ -519,8 +708,16 @@ ipcMain.handle('db:add-folder', (_e, fullPath) => {
         folders.add(acc);
     }
     store.set('folders', Array.from(folders));
+    notifyChanged('folder.add', { path: p });
     return store.get('folders');
 });
+function logOp(type, payload) {
+    const arr = store.get('ops') || [];
+    arr.push({ type, payload, ts: Date.now() });
+    // 只保留最近一万条，避免无限增长
+    if (arr.length > 10000) arr.splice(0, arr.length - 10000);
+    store.set('ops', arr);
+}
 ipcMain.handle('db:delete-folder', (_e, fullPath) => {
     const folders = store.get('folders') || [];
     const resources = store.get('resources') || [];
@@ -541,6 +738,8 @@ ipcMain.handle('db:delete-folder', (_e, fullPath) => {
 
     store.set('folders', keptFolders);
     store.set('resources', keptResources);
+    notifyChanged('folder.delete', { path: base });
+    triggerAutoSync();
     return store.get('folders');
 });
 
@@ -551,6 +750,8 @@ ipcMain.handle('db:add-resource', (_e, payload) => {
     const now = Date.now();
     list.push({ id, createdAt: now, updatedAt: now, tags: [], ...payload });
     store.set('resources', list);
+    notifyChanged('res.add', { id, folder: payload?.folder || '' });
+    triggerAutoSync();
     return id;
 });
 
@@ -560,18 +761,24 @@ ipcMain.handle('db:update-resource', (_e, id, patch) => {
         return { ...r, ...patch, updatedAt: Date.now() };
     });
     store.set('resources', list);
+    notifyChanged('res.update', { id });
+    triggerAutoSync();
     return true;
 });
 
 ipcMain.handle('db:delete-resource', (_e, id) => {
     const list = (store.get('resources') || []).filter(r => r.id !== id);
     store.set('resources', list);
+    notifyChanged('res.delete', { id });
+    triggerAutoSync();
     return true;
 });
 
 // 文件夹：直接设置顺序（用于排序落盘）
 ipcMain.handle('db:set-folders', (_e, folders) => {
     store.set('folders', Array.from(new Set(folders || [])));
+    notifyChanged('folder.set', { folders: store.get('folders') });
+    triggerAutoSync();
     return store.get('folders');
 });
 
@@ -607,6 +814,8 @@ ipcMain.handle('db:move-folder', (_e, { sourcePath, targetParentPath }) => {
 
     store.set('folders', Array.from(new Set(updatedFolders)));
     store.set('resources', updatedResources);
+    notifyChanged('folder.move', { sourcePath: src, targetParentPath: targetParent });
+    triggerAutoSync();
     return store.get('folders');
 });
 
@@ -640,6 +849,8 @@ ipcMain.handle('db:rename-folder', (_e, { sourcePath, newName }) => {
 
     store.set('folders', Array.from(new Set(newFolders)));
     store.set('resources', newResources);
+    notifyChanged('folder.rename', { from: oldPath, to: newBase });
+    triggerAutoSync();
     return store.get('folders');
 });
 
@@ -650,6 +861,8 @@ ipcMain.handle('db:add-tag', (_e, tag) => {
     if (t) tags.add(t);
     const arr = Array.from(tags);
     store.set('tags', arr);
+    notifyChanged('tag.add', { tag: t });
+    triggerAutoSync();
     return arr;
 });
 

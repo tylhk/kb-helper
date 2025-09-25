@@ -1328,6 +1328,18 @@ async function bootstrap() {
   // 预加载就绪，继续你原本的流程
   try {
     await init(); // ← 这里就是你原来调用的初始化函数
+    if (window.ops?.onChanged) {
+      let t = null;
+      window.ops.onChanged(() => {
+        clearTimeout(t);
+        t = setTimeout(async () => {
+          try {
+            const local = await window.api.list();
+            if (window.auth?.syncNow) await window.auth.syncNow(local);
+          } catch (e) { }
+        }, 800); // 800ms 防抖
+      });
+    }
   } catch (e) {
     console.error("[init] 异常：", e);
     toast("初始化失败：" + e.message, "error");
@@ -1503,7 +1515,178 @@ function initFullscreenControls() {
     }, 2200);
   }
 }
+// ===== 账号菜单与认证逻辑 =====
+function bindAccountUI() {
+  const btn = document.getElementById('accountBtn');
+  const menu = document.getElementById('accountMenu');
+  if (!btn || !menu) return;
 
+  async function redraw() {
+    const me = await window.auth?.whoami?.();
+    const logged = !!(me && me.user && me.token);
+    menu.innerHTML = logged ? `
+  <button class="item" data-act="view-cloud">查看云端数据</button>
+  <button class="item" data-act="sync">同步数据</button>
+  <button class="item" data-act="logout">取消登录</button>
+` : `
+  <button class="item" data-act="login">登录</button>
+  <button class="item" data-act="register">注册</button>
+`;
+  }
+
+  btn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await redraw();
+    // 计算菜单位置（右上角对齐按钮）
+    const rect = btn.getBoundingClientRect();
+    menu.style.minWidth = '240px';
+    menu.style.top = (rect.bottom + 6) + 'px';
+    menu.style.left = Math.max(8, rect.right - 240) + 'px';
+
+    menu.classList.toggle('hidden');
+    document.body.classList.add('menu-open');
+  });
+
+  document.addEventListener('click', () => {
+    menu.classList.add('hidden');
+    document.body.classList.remove('menu-open');
+  });
+
+  menu.addEventListener('click', async (e) => {
+    const act = e.target?.dataset?.act;
+    if (!act) return;
+    if (act === 'login') {
+      openFormModal({
+        title: '登录',
+        bodyHTML: `
+          <div class="row"><label>账号</label><input name="username" required /></div>
+          <div class="row"><label>密码</label><input name="password" type="password" required /></div>
+        `,
+        onSubmit: async (fd) => {
+          const username = String(fd.get('username') || '').trim();
+          const password = String(fd.get('password') || '');
+          await window.auth.login({ username, password });
+          toast('登录成功'); await redraw(); await trySyncNow(true);
+        }
+      });
+    } else if (act === 'register') {
+      openFormModal({
+        title: '注册（审核制）',
+        bodyHTML: `
+          <div class="row"><label>账号</label><input name="username" required /></div>
+          <div class="row"><label>邮箱</label><input name="email" type="email" required /></div>
+          <div class="row"><label>密码</label><input name="password" type="password" required /></div>
+        `,
+        onSubmit: async (fd) => {
+          const payload = {
+            username: String(fd.get('username') || '').trim(),
+            email: String(fd.get('email') || '').trim(),
+            password: String(fd.get('password') || '')
+          };
+          await window.auth.register(payload);
+          toast('注册已提交，等待审核（邮件会通知结果）');
+        }
+      });
+    } else if (act === 'logout') {
+      await window.auth.logout();
+      toast('已退出登录'); await redraw();
+    } else if (act === 'sync') {
+      await trySyncNow(true);
+    } else if (act === 'view-cloud') {
+      const data = await window.auth.fetchCloud();
+      openJsonViewer('云端数据（只读）', data);
+    }
+    menu.classList.add('hidden');
+    document.body.classList.remove('menu-open');
+  });
+}
+
+// 启动时绑定账号UI，并做自动同步
+async function trySyncNow(showToast = false) {
+  try {
+    const local = await window.api.list();
+    const result = await window.auth.syncNow(local);
+    if (showToast) toast(result?.changed ? '已同步（合并去重）' : '已是最新');
+    // 如服务端有变更，主动刷新渲染
+    if (result?.changed) await refresh();
+  } catch (e) { if (showToast) toast('同步失败：' + (e.message || e), 'error'); }
+}
+
+// 首次加载 & 定时自动同步
+(function () {
+  // 你的初始化流程：bootstrap/init 之后调用
+  // 若你已有 init()，在它完成后调用这两个：
+  bindAccountUI();
+  setInterval(() => trySyncNow(false), 60 * 1000); // 每分钟自动同步
+})();
+
+// 用现有的表单模态 (#modal) 打开只读 JSON 视图；注意参数顺序：(title, obj)
+function openJsonViewer(title, obj) {
+  const pretty = JSON.stringify(obj ?? {}, null, 2);
+
+  // 1) 缩小 BrowserView，避免遮住按钮
+  let restored = false;
+  const restorePreview = () => {
+    if (restored) return;
+    restored = true;
+    try {
+      const host = document.getElementById('viewerHost');
+      if (host && window.preview?.setBounds) {
+        const r = host.getBoundingClientRect();
+        window.preview.setBounds({
+          x: Math.round(r.left), y: Math.round(r.top),
+          width: Math.round(r.width), height: Math.round(r.height)
+        });
+      }
+    } catch {}
+    document.body.classList.remove('menu-open');
+  };
+  try {
+    const host = document.getElementById('viewerHost');
+    if (host && window.preview?.setBounds) {
+      window.preview.setBounds({ x: 0, y: 0, width: 1, height: 1 });
+    }
+  } catch {}
+  document.body.classList.add('menu-open');
+
+  // 2) 复用 openFormModal 画出中心弹窗（去掉取消按钮，统一按钮样式）
+  openFormModal({
+    title,
+    bodyHTML: `
+      <textarea id="jsonView" class="json-view" readonly>${pretty}</textarea>
+    `,
+    onSubmit: () => {},          // 只是关闭
+    okText: '关闭',
+    cancelText: ''               // 不显示取消
+  });
+
+  const modal = document.getElementById('modal');
+  const okBtn = document.getElementById('modalOk');
+  const cancelBtn = document.getElementById('modalCancel');
+  if (cancelBtn) cancelBtn.style.display = 'none';
+
+  // 在 actions 区追加“复制 / 下载JSON”两个按钮（样式跟随 .modal-actions）
+  const actions = modal.querySelector('.modal-actions');
+  const mkBtn = (txt) => { const b=document.createElement('button'); b.textContent=txt; return b; };
+  const copyBtn = mkBtn('复制');
+  const saveBtn = mkBtn('下载JSON');
+  actions.insertBefore(copyBtn, okBtn);
+  actions.insertBefore(saveBtn, okBtn);
+
+  const ta = document.getElementById('jsonView');
+  copyBtn.onclick = () => navigator.clipboard.writeText(ta.value);
+  saveBtn.onclick = () => {
+    const blob = new Blob([ta.value], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download='cloud-data.json'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // 3) 关闭时恢复 BrowserView
+  okBtn.addEventListener('click', restorePreview, { once: true });
+  cancelBtn?.addEventListener('click', restorePreview, { once: true });
+  window.addEventListener('beforeunload', restorePreview, { once: true });
+}
 
 /* ========= 启动 ========= */
 (function init() {
