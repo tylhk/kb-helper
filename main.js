@@ -5,18 +5,17 @@ import http from 'http';
 import Store from 'electron-store';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-// --------------------------- 数据存储 ---------------------------
 const store = new Store({
     name: 'kb-data',
     defaults: {
-        resources: [],   // { id, url, title, folder, tags:[], createdAt, updatedAt }
-        folders: [],     // ["学习","学习/项目A", ...]
-        tags: [],         // ["前端","Electron", ...]
-        auth: { token: null, user: null, server: '' }, // 新增：登录态
-        ops: []                                     // 新增：操作日志（增删改移动）
+        resources: [],
+        folders: [],
+        tags: [],
+        auth: { token: null, user: null, server: '' },
+        ops: []
     }
 });
-
+let PREVIEW_CTRL_DOWN = false;
 const WP_BASE = 'https://satone1008.cn';
 
 async function callWP(method, path, body, token) {
@@ -46,21 +45,19 @@ async function triggerAutoSync() {
     _autoSyncTimer = setTimeout(async () => {
         try {
             const auth = store.get('auth') || {};
-            if (!auth.token) return; // 未登录就不自动同步
+            if (!auth.token) return;
             const localNow = {
                 resources: store.get('resources') || [],
                 folders: store.get('folders') || [],
                 tags: store.get('tags') || [],
             };
-            // 直接把本地当前快照传上去（服务端仍会做幂等保存）
             await callWP('POST', '/wp-json/kbhelper/v1/data', localNow, auth.token);
         } catch (e) {
             console.error('auto-sync failed:', e);
         }
-    }, 1000); // 1s 去抖
+    }, 1000);
 }
 
-// --------------------------- 窗口 ---------------------------
 let win, preview;
 let INITIAL_SIZE_POLICY;
 let IS_PREVIEW_MAX = false;
@@ -86,8 +83,8 @@ function createWindow() {
     INITIAL_SIZE_POLICY = {
         resizable: win.isResizable(),
         maximizable: win.isMaximizable(),
-        min: win.getMinimumSize(),         // [w, h]
-        max: win.getMaximumSize(),         // [w, h]，可能是 [0, 0] 表示无限
+        min: win.getMinimumSize(),
+        max: win.getMaximumSize(),
     };
     const wireKeys = (wc) => {
         if (!wc) return;
@@ -95,7 +92,7 @@ function createWindow() {
             if (input.type !== 'keyDown') return;
             if (input.key === 'Escape' || input.code === 'Escape') {
                 event.preventDefault();
-                if (IS_PREVIEW_MAX) shrinkPreviewInMain(); // 仅在填充满时才缩
+                if (IS_PREVIEW_MAX) shrinkPreviewInMain();
                 win.webContents.send('hwkey', { key: 'Escape' });
             } else if (input.key === 'F11' || input.code === 'F11') {
                 event.preventDefault();
@@ -103,26 +100,20 @@ function createWindow() {
             }
         });
     };
-
     wireKeys(win.webContents);
     win.setMenuBarVisibility(false);
     Menu.setApplicationMenu(null);
-
     win.once('ready-to-show', () => win.show());
     win.on('closed', () => { win = null; });
-
-    // 你的前端入口
     const indexPath = path.join(__dirname, 'index.html');
     win.loadFile(indexPath);
     win.webContents.on('before-input-event', (event, input) => {
         if (input.type !== 'keyDown') return;
-
         if (input.key === 'F11') {
             event.preventDefault();
             win.webContents.send('hwkey', { key: 'F11' });
             return;
         }
-
         if (input.key === 'Escape') {
             event.preventDefault();
             if (win && !win.isDestroyed()) {
@@ -133,14 +124,10 @@ function createWindow() {
             }
         }
     });
-
-    // 可选：在新窗口中用系统默认浏览器打开外链
     win.webContents.setWindowOpenHandler(({ url }) => {
         if (/^https?:\/\//i.test(url)) { shell.openExternal(url); return { action: 'deny' }; }
         return { action: 'allow' };
     });
-
-    // 启动本地 HTTP 桥（无弹窗的扩展通信）
     startLocalBridge(win);
 }
 function shrinkPreviewInMain() {
@@ -150,18 +137,31 @@ function shrinkPreviewInMain() {
         }
     } catch { }
 }
-// === Preview Overlay（与主窗口同尺寸/同位置；共享同一个 BrowserView）===
-let overlayWin = null;                     // 仅一个 overlay 窗口
-let previewView = null;                    // 仅一个 BrowserView，主窗/overlay 之间来回移动
-let lastPreviewBoundsInMain = { x: 0, y: 0, width: 0, height: 0 }; // 预览区在主窗口里的矩形
-
+let overlayWin = null;
+let previewView = null;
+let lastPreviewBoundsInMain = { x: 0, y: 0, width: 0, height: 0 };
 function ensurePreviewView() {
     if (previewView && !previewView.webContents.isDestroyed()) return previewView;
     previewView = new BrowserView({
         webPreferences: { contextIsolation: true, sandbox: true }
     });
+    previewView.webContents.on('before-input-event', (_event, input) => {
+        if (input.key === 'Control' || input.code === 'ControlLeft' || input.code === 'ControlRight' || input.key === 'Meta') {
+            PREVIEW_CTRL_DOWN = input.type !== 'keyUp';
+        }
+    });
 
-    // ★ 只绑定一次键盘钩子：无论在主窗还是 overlay，F11/ESC 都能生效
+    previewView.webContents.setWindowOpenHandler(({ url }) => {
+        if (/^https?:\/\//i.test(url)) {
+            if (PREVIEW_CTRL_DOWN) {
+                shell.openExternal(url);
+            } else {
+                previewView.webContents.loadURL(url);
+            }
+            return { action: 'deny' };
+        }
+        return { action: 'deny' };
+    });
     if (!previewView.__keysHooked) {
         previewView.__keysHooked = true;
         previewView.webContents.on('before-input-event', (event, input) => {
@@ -172,15 +172,13 @@ function ensurePreviewView() {
                     overlayWin.close();
                     return;
                 }
-                if (input.key === 'Escape' && IS_PREVIEW_MAX) shrinkPreviewInMain(); // 仅填充满时
+                if (input.key === 'Escape' && IS_PREVIEW_MAX) shrinkPreviewInMain();
                 if (win && !win.isDestroyed()) {
                     win.webContents.send('hwkey', { key: input.key });
                 }
             }
-
         });
     }
-
     if (win && !win.isDestroyed()) {
         try {
             win.addBrowserView(previewView);
@@ -190,8 +188,6 @@ function ensurePreviewView() {
     return previewView;
 }
 
-
-// 给渲染层用：确保预览存在 / 载入 URL / 回读当前 URL / 更新主窗口里的预览矩形
 ipcMain.handle('preview:ensure', () => { ensurePreviewView(); return true; });
 ipcMain.handle('preview:load', (_e, url) => {
     const view = ensurePreviewView();
@@ -210,12 +206,11 @@ ipcMain.handle('preview:set-bounds', (_e, rect) => {
     return true;
 });
 
-// 打开 overlay：用与主窗口相同的 x/y/width/height；把同一个 BrowserView 移过去并铺满
 ipcMain.handle('overlay:open', async (_e) => {
     const view = ensurePreviewView();
     if (overlayWin && !overlayWin.isDestroyed()) { overlayWin.focus(); return true; }
 
-    const b = win.getBounds();  // ← 与主窗同位置/同大小
+    const b = win.getBounds();
     overlayWin = new BrowserWindow({
         x: b.x, y: b.y, width: b.width, height: b.height,
         frame: false, resizable: false, movable: false,
@@ -225,8 +220,6 @@ ipcMain.handle('overlay:open', async (_e) => {
         webPreferences: { contextIsolation: true, sandbox: true }
     });
     overlayWin.setMenuBarVisibility(false);
-
-    // 把 View 从主窗卸下，挂到 overlay，并让它铺满 overlay 内容区
     const fitOverlay = () => {
         const cb = overlayWin.getContentBounds();
         view.setBounds({ x: 0, y: 0, width: cb.width, height: cb.height });
@@ -243,17 +236,15 @@ ipcMain.handle('overlay:open', async (_e) => {
         try { view.webContents.focus(); } catch { }
     });
 
-    // 在 overlay 里按 F11/ESC 也能退出
     overlayWin.webContents.on('before-input-event', (event, input) => {
         if (input.type !== 'keyDown') return;
         if (input.key === 'F11' || input.key === 'Escape') {
             event.preventDefault();
             if (overlayWin && !overlayWin.isDestroyed()) {
-                overlayWin.close(); // on('closed') 里会把 View 交还给主窗口
+                overlayWin.close();
             }
         }
     });
-
     overlayWin.on('resize', fitOverlay);
     overlayWin.on('close', () => {
         try {
@@ -270,8 +261,6 @@ ipcMain.handle('overlay:open', async (_e) => {
     overlayWin.on('closed', () => {
         overlayWin = null;
     });
-
-
     overlayWin.show();
     return true;
 });
@@ -284,10 +273,23 @@ ipcMain.handle('preview:focus', () => {
     } catch { }
     return false;
 });
+ipcMain.handle('preview:close', async () => {
+    try {
+        if (overlayWin && !overlayWin.isDestroyed()) {
+            overlayWin.close();
+        }
+        const view = ensurePreviewView();
+        try { await view.webContents.loadURL('about:blank'); } catch { }
+        shrinkPreviewInMain();
+        return true;
+    } catch {
+        return false;
+    }
+});
 // 关闭 overlay（供渲染层调用）
 ipcMain.handle('overlay:close', async () => {
     if (!overlayWin || overlayWin.isDestroyed()) return false;
-    overlayWin.close(); // 'closed' 里会负责把 View 挂回主窗口
+    overlayWin.close();
     return true;
 });
 
@@ -295,8 +297,6 @@ app.on('web-contents-created', (_evt, contents) => {
     if (contents.getType && contents.getType() === 'webview') {
         contents.on('before-input-event', (event, input) => {
             if (input.type !== 'keyDown') return;
-
-            // F11：转发到渲染层（由渲染层决定是否切全屏/其它行为）
             if (input.key === 'F11') {
                 event.preventDefault();
                 if (win && !win.isDestroyed()) {
@@ -304,8 +304,6 @@ app.on('web-contents-created', (_evt, contents) => {
                 }
                 return;
             }
-
-            // Esc：若正在系统全屏，先退全屏；否则转发给渲染层做“退出预览最大化”
             if (input.key === 'Escape') {
                 event.preventDefault();
                 if (win && !win.isDestroyed()) {
@@ -319,31 +317,25 @@ app.on('web-contents-created', (_evt, contents) => {
     }
 });
 
-// --------------------------- 本地 HTTP 桥 ---------------------------
-// 扩展向 http://127.0.0.1:17645/add POST {url,title,folder?}
 function startLocalBridge(theWin) {
     const server = http.createServer((req, res) => {
-        // CORS 允许（扩展也能直接 fetch）
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
         if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
-
         if (req.method !== 'POST' || req.url !== '/add') {
             res.writeHead(404); return res.end();
         }
-
         // 仅允许本机（如不需要可移除）
         const ip = req.socket.remoteAddress || '';
         if (!ip.includes('127.0.0.1') && !ip.includes('::1')) {
             res.writeHead(403); return res.end('forbidden');
         }
-
         let body = '';
         req.on('data', c => body += c);
         req.on('end', () => {
             try {
-                const data = JSON.parse(body || '{}'); // {url,title,folder}
+                const data = JSON.parse(body || '{}');
                 if (theWin && !theWin.isDestroyed()) {
                     theWin.show(); theWin.focus();
                     theWin.webContents.send('deeplink:add', data);
@@ -363,22 +355,17 @@ function startLocalBridge(theWin) {
     app.on('before-quit', () => server.close());
 }
 
-// --------------------------- 自定义协议（兜底） ---------------------------
 function registerProtocol() {
-    app.setAppUserModelId('KBHelper'); // Windows 建议设置，提升注册成功率
+    app.setAppUserModelId('KBHelper');
     const PROTOCOL = 'kb-helper';
 
     let ok;
     if (!app.isPackaged) {
-        // 开发态：electron.exe + 入口绝对路径
         const entry = path.join(__dirname, 'main.js');
         ok = app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [entry]);
     } else {
-        // 打包态：直接注册可执行文件
         ok = app.setAsDefaultProtocolClient(PROTOCOL);
     }
-
-    // 某些机器第一次返回 false，移除后重注册一次
     if (!ok) {
         try { app.removeAsDefaultProtocolClient(PROTOCOL); } catch { }
         if (!app.isPackaged) {
@@ -388,8 +375,6 @@ function registerProtocol() {
             app.setAsDefaultProtocolClient(PROTOCOL);
         }
     }
-
-    // 单实例 + 从第二实例拿到 deep link（Windows）
     const gotLock = app.requestSingleInstanceLock();
     if (!gotLock) {
         app.quit();
@@ -403,15 +388,11 @@ function registerProtocol() {
             }
         });
     }
-
-    // macOS：open-url
     app.on('open-url', (e, link) => {
         e.preventDefault();
         forwardDeepLink(link);
         if (win) { win.show(); win.focus(); }
     });
-
-    // Windows（开发态）首次启动时，协议可能在 argv 里
     if (process.platform === 'win32') {
         const link = process.argv.find(a => typeof a === 'string' && a.startsWith(`${PROTOCOL}://`));
         if (link) setTimeout(() => forwardDeepLink(link), 300);
@@ -420,8 +401,8 @@ function registerProtocol() {
     function forwardDeepLink(link) {
         try {
             const u = new URL(link);
-            if (u.hostname !== 'add') return; // 仅处理 kb-helper://add
-            const q = Object.fromEntries(u.searchParams.entries()); // {url,title,folder}
+            if (u.hostname !== 'add') return;
+            const q = Object.fromEntries(u.searchParams.entries());
             if (win && !win.isDestroyed()) win.webContents.send('deeplink:add', q);
         } catch { }
     }
@@ -432,15 +413,12 @@ ipcMain.handle('win:resize:free', () => {
     try { win.setMaximizable(true); } catch { }
     try { if (process.platform === 'darwin') win.setMovable(true); } catch { }
     try { win.setMinimumSize(1, 1); } catch { }
-    try { win.setMaximumSize(0, 0); } catch { } // 0,0 表示不限制
+    try { win.setMaximumSize(0, 0); } catch { }
     return true;
 });
 
-// 恢复原约束 + 必要时把窗口“抬”到最小尺寸（退出预览填充满后调用）
 ipcMain.handle('win:resize:restore', () => {
     if (!win) return false;
-
-    // 兜底：若 INITIAL_SIZE_POLICY 还没初始化，就用当前窗口的约束作为恢复值
     const curMin = (typeof win.getMinimumSize === 'function') ? win.getMinimumSize() : [1, 1];
     const curMax = (typeof win.getMaximumSize === 'function') ? win.getMaximumSize() : [0, 0];
     const policy = INITIAL_SIZE_POLICY || {
@@ -449,7 +427,6 @@ ipcMain.handle('win:resize:restore', () => {
         min: curMin,
         max: curMax
     };
-
     try { win.setResizable(!!policy.resizable); } catch { }
     try { win.setMaximizable(!!policy.maximizable); } catch { }
     try {
@@ -458,11 +435,9 @@ ipcMain.handle('win:resize:restore', () => {
     } catch { }
     try {
         const [maxW, maxH] = policy.max || [0, 0];
-        win.setMaximumSize(maxW || 0, maxH || 0); // 0,0 = 不限制
+        win.setMaximumSize(maxW || 0, maxH || 0);
     } catch { }
     try { if (process.platform === 'darwin') win.setMovable(!!policy.resizable); } catch { }
-
-    // 关键：如果当前尺寸小于最小值，主动把窗口抬到最小值
     try {
         const [curW, curH] = win.getSize();
         const [minW, minH] = policy.min || [1, 1];
@@ -476,22 +451,18 @@ ipcMain.handle('win:resize:restore', () => {
     return true;
 });
 
-// --------------------------- IPC（渲染层调用） ---------------------------
-// 读全量状态
 ipcMain.handle('win:set-locked', (_e, flag) => {
     if (!win) return false;
     const lock = !!flag;
 
     if (!lock) {
-        // === 解限：进入“预览填充满”前调用 ===
         try { win.setResizable(true); } catch { }
         try { win.setMaximizable(true); } catch { }
         try { if (process.platform === 'darwin') win.setMovable(true); } catch { }
         try { win.setMinimumSize(1, 1); } catch { }
-        try { win.setMaximumSize(0, 0); } catch { } // 0,0 = 不限制
+        try { win.setMaximumSize(0, 0); } catch { }
         return false;
     } else {
-        // === 恢复：退出“预览填充满”后调用 ===
         try { win.setResizable(!!INITIAL_SIZE_POLICY?.resizable); } catch { }
         try { win.setMaximizable(!!INITIAL_SIZE_POLICY?.maximizable); } catch { }
         try {
@@ -500,7 +471,6 @@ ipcMain.handle('win:set-locked', (_e, flag) => {
         } catch { }
         try {
             const [maxW, maxH] = INITIAL_SIZE_POLICY?.max || [0, 0];
-            // 0,0 表示不限制
             win.setMaximumSize(maxW || 0, maxH || 0);
         } catch { }
         try { if (process.platform === 'darwin') win.setMovable(!!INITIAL_SIZE_POLICY?.resizable); } catch { }
@@ -532,7 +502,6 @@ ipcMain.handle('win:is-maximized', () => {
     return win.isMaximized();
 });
 
-// 显式设置全屏（备用）
 ipcMain.handle('win:set-fullscreen', (_e, flag) => {
     if (!win) return false;
     const next = !!flag;
@@ -541,7 +510,7 @@ ipcMain.handle('win:set-fullscreen', (_e, flag) => {
     try { if (process.platform === 'darwin') win.setMovable(!next ? true : false); } catch { }
     return next;
 });
-// ========== 认证 ==========
+
 ipcMain.handle('auth:whoami', () => {
     return store.get('auth') || { token: null, user: null, server: WP_BASE };
 });
@@ -562,10 +531,6 @@ ipcMain.handle('auth:register', async (_e, payload) => {
     return true;
 });
 
-// ========== 同步（合并去重：集合并集，含中文规范化） ==========
-
-// 资源去重：优先 id，其次 url（忽略大小写）
-// 资源去重（优先 id，否则按 url 小写）
 function uniqueByIdOrUrl(list) {
     const seen = new Map();
     for (const r of (Array.isArray(list) ? list : [])) {
@@ -575,7 +540,6 @@ function uniqueByIdOrUrl(list) {
     return Array.from(seen.values());
 }
 
-// 把 "\u535a\u5ba2" 或 "u535au5ba2" 变回真实中文
 function decodeUnicodeish(str) {
     if (typeof str !== 'string') return '';
     let s = str;
@@ -584,14 +548,12 @@ function decodeUnicodeish(str) {
     return s.trim();
 }
 
-// 逐段规范化一个文件夹路径
 function normFolderPath(p) {
     if (typeof p !== 'string') return '';
     const parts = p.split('/').map(seg => decodeUnicodeish(String(seg).trim())).filter(Boolean);
     return parts.join('/');
 }
 
-// 把任意输入转成标准 {resources, folders, tags}（中文已规范）
 function normalizeState(s) {
     const o = s || {};
     const folders = new Set();
@@ -613,7 +575,6 @@ function normalizeState(s) {
     return { resources, folders: Array.from(folders), tags: Array.from(tags) };
 }
 
-// 把 A+B 做并集（已先各自规范化）
 function unionState(a, b) {
     const A = normalizeState(a);
     const B = normalizeState(b);
@@ -624,7 +585,6 @@ function unionState(a, b) {
     };
 }
 
-// 根据资源反推“应存在”的文件夹集合（自动补齐祖先路径）
 function recomputeFoldersFromResources(resources) {
     const set = new Set();
     for (const r of (resources || [])) {
@@ -639,8 +599,80 @@ function recomputeFoldersFromResources(resources) {
     }
     return Array.from(set);
 }
+import { session } from 'electron';
 
-// 仅查看云端（给“查看云端数据”按钮用）
+ipcMain.handle('cookies:export', async (_e, { domains = [] } = {}) => {
+    const all = await session.defaultSession.cookies.get({});
+    const list = all
+        .filter(c => !domains.length || domains.some(d => c.domain.includes(d)))
+        .map(c => ({
+            name: c.name,
+            value: c.value,
+            domain: c.domain,
+            hostOnly: !!c.hostOnly,
+            path: c.path || '/',
+            secure: !!c.secure,
+            httpOnly: !!c.httpOnly,
+            sameSite: c.sameSite || 'unspecified',
+            expirationDate: c.expirationDate,
+        }));
+    return list;
+});
+
+ipcMain.handle('cookies:import', async (_e, cookies = []) => {
+    for (const c of cookies) {
+        const host = (c.domain || '').replace(/^\./, '');
+        const url = `${c.secure ? 'https' : 'http'}://${host}${c.path || '/'}`;
+
+        const details = {
+            url,
+            name: c.name,
+            value: c.value,
+            path: c.path || '/',
+            secure: !!c.secure,
+            httpOnly: !!c.httpOnly,
+            sameSite: c.sameSite || 'unspecified',
+        };
+
+        if (!c.hostOnly && !/^__Host-/.test(c.name) && c.domain) {
+            details.domain = c.domain;
+        }
+        if (typeof c.expirationDate === 'number') {
+            details.expirationDate = c.expirationDate;
+        }
+        await session.defaultSession.cookies.set(details);
+    }
+    return true;
+});
+ipcMain.handle('auth:save-cookies', async (_e, list = []) => {
+    const auth = store.get('auth') || {};
+    if (!auth.token) throw new Error('未登录');
+    await callWP('POST', '/wp-json/kbhelper/v1/cookies', list, auth.token);
+    return true;
+});
+
+ipcMain.handle('auth:load-cookies', async () => {
+    const auth = store.get('auth') || {};
+    if (!auth.token) throw new Error('未登录');
+    return await callWP('GET', '/wp-json/kbhelper/v1/cookies', null, auth.token);
+});
+ipcMain.handle('auth:account-info', async () => {
+    const auth = store.get('auth') || {};
+    if (!auth.token) throw new Error('未登录');
+    const info = await callWP('GET', '/wp-json/kbhelper/v1/me', null, auth.token);
+    return info;
+});
+
+ipcMain.handle('auth:change-password', async (_e, newPwd) => {
+    const auth = store.get('auth') || {};
+    if (!auth.token) throw new Error('未登录');
+    if (typeof newPwd !== 'string' || newPwd.trim().length < 4) {
+        throw new Error('新密码太短');
+    }
+    await callWP('POST', '/wp-json/kbhelper/v1/auth/change_password', { new_password: newPwd.trim() }, auth.token);
+    return true;
+});
+
 ipcMain.handle('auth:fetch-cloud', async () => {
     const auth = store.get('auth') || {};
     if (!auth.token) throw new Error('未登录');
@@ -648,41 +680,28 @@ ipcMain.handle('auth:fetch-cloud', async () => {
     return normalizeState(remote);
 });
 
-// 立即同步：本地 + 云端 + 当前本地存储 => 规范化后并集去重，然后回写两端
 ipcMain.handle('auth:sync-now', async (_e, local) => {
     const auth = store.get('auth') || {};
     if (!auth.token) throw new Error('未登录');
 
-    // 取云端并规范化
     const remoteRaw = await callWP('GET', '/wp-json/kbhelper/v1/data', null, auth.token);
     const remote = normalizeState(remoteRaw);
 
-    // 取本地 store、渲染端快照并规范化
     const storeSafe = normalizeState({
         resources: store.get('resources'),
         folders: store.get('folders'),
         tags: store.get('tags'),
     });
     const localSafe = normalizeState(local);
-
-    // 并集
     let merged = unionState(storeSafe, unionState(localSafe, remote));
-
-    // 关键：从资源反推出应有的 folders，但与原有 folders 取并集，避免清空“暂时没有资源”的空目录
     const foldersFromRes = recomputeFoldersFromResources(merged.resources);
     merged.folders = Array.from(new Set([...(merged.folders || []), ...foldersFromRes]));
-
-
-    // 保存到本地
     const before = JSON.stringify(storeSafe);
     store.set('resources', merged.resources);
     store.set('folders', merged.folders);
     store.set('tags', merged.tags);
     const changed = before !== JSON.stringify(merged);
-
-    // 回写云端
     await callWP('POST', '/wp-json/kbhelper/v1/data', merged, auth.token);
-
     return { changed, merged };
 });
 
@@ -699,8 +718,6 @@ ipcMain.handle('db:add-folder', (_e, fullPath) => {
     const folders = new Set(store.get('folders') || []);
     const p = (fullPath || '').replace(/^\/+|\/+$/g, '');
     if (!p) return Array.from(folders);
-
-    // 确保祖先路径都落盘
     const segs = p.split('/');
     let acc = '';
     for (const s of segs) {
@@ -714,36 +731,26 @@ ipcMain.handle('db:add-folder', (_e, fullPath) => {
 function logOp(type, payload) {
     const arr = store.get('ops') || [];
     arr.push({ type, payload, ts: Date.now() });
-    // 只保留最近一万条，避免无限增长
     if (arr.length > 10000) arr.splice(0, arr.length - 10000);
     store.set('ops', arr);
 }
 ipcMain.handle('db:delete-folder', (_e, fullPath) => {
     const folders = store.get('folders') || [];
     const resources = store.get('resources') || [];
-
     const base = (fullPath || '').replace(/^\/+|\/+$/g, '');
     if (!base) return folders;
-
     const prefix = base + '/';
-
-    // 删 folders 子树
     const keptFolders = folders.filter(f => f !== base && !f.startsWith(prefix));
-
-    // 删资源子树
     const keptResources = resources.filter(r => {
         const rf = r.folder || '';
         return !(rf === base || rf.startsWith(prefix));
     });
-
     store.set('folders', keptFolders);
     store.set('resources', keptResources);
     notifyChanged('folder.delete', { path: base });
     triggerAutoSync();
     return store.get('folders');
 });
-
-// 资源
 ipcMain.handle('db:add-resource', (_e, payload) => {
     const list = store.get('resources') || [];
     const id = String(Date.now()) + Math.random().toString(16).slice(2);
@@ -774,7 +781,6 @@ ipcMain.handle('db:delete-resource', (_e, id) => {
     return true;
 });
 
-// 文件夹：直接设置顺序（用于排序落盘）
 ipcMain.handle('db:set-folders', (_e, folders) => {
     store.set('folders', Array.from(new Set(folders || [])));
     notifyChanged('folder.set', { folders: store.get('folders') });
@@ -782,7 +788,6 @@ ipcMain.handle('db:set-folders', (_e, folders) => {
     return store.get('folders');
 });
 
-// 移动文件夹到目标父路径（作为其子目录）
 ipcMain.handle('db:move-folder', (_e, { sourcePath, targetParentPath }) => {
     const folders = store.get('folders') || [];
     const resources = store.get('resources') || [];
@@ -791,20 +796,18 @@ ipcMain.handle('db:move-folder', (_e, { sourcePath, targetParentPath }) => {
     const targetParent = (targetParentPath || '').replace(/^\/+|\/+$/g, '');
 
     if (!src) return folders;
-    if (src === targetParent || src.startsWith(targetParent + '/')) return folders; // 不允许移到自己或子树
+    if (src === targetParent || src.startsWith(targetParent + '/')) return folders;
 
     const leaf = src.split('/').pop();
     const newBase = targetParent ? `${targetParent}/${leaf}` : leaf;
     const oldPrefix = src + '/';
 
-    // 更新 folders
     const updatedFolders = folders.map(f => {
         if (f === src) return newBase;
         if (f.startsWith(oldPrefix)) return newBase + f.slice(src.length);
         return f;
     });
 
-    // 更新 resources.folder
     const updatedResources = resources.map(r => {
         const rf = r.folder || '';
         if (rf === src) return { ...r, folder: newBase };
@@ -818,8 +821,6 @@ ipcMain.handle('db:move-folder', (_e, { sourcePath, targetParentPath }) => {
     triggerAutoSync();
     return store.get('folders');
 });
-
-// 重命名文件夹（仅改最后一段名，父路径不变；级联更新）
 ipcMain.handle('db:rename-folder', (_e, { sourcePath, newName }) => {
     const folders = store.get('folders') || [];
     const resources = store.get('resources') || [];
@@ -854,7 +855,6 @@ ipcMain.handle('db:rename-folder', (_e, { sourcePath, newName }) => {
     return store.get('folders');
 });
 
-// 标签：新增（去重后返回全量）
 ipcMain.handle('db:add-tag', (_e, tag) => {
     const tags = new Set(store.get('tags') || []);
     const t = (tag || '').trim();
@@ -866,11 +866,9 @@ ipcMain.handle('db:add-tag', (_e, tag) => {
     return arr;
 });
 
-// --------------------------- App 生命周期 ---------------------------
 app.whenReady().then(() => {
-    registerProtocol();  // 协议（兜底）
+    registerProtocol();
     createWindow();
-
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });

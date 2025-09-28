@@ -54,7 +54,10 @@
     </main>
     <div id="splitter" class="splitter" title="拖动调整左右区域宽度"></div>
     <section class="preview">
-      <button id="previewMaxBtn" class="fs-btn" title="预览最大化">⤢</button>
+      <div id="previewActions" class="preview-actions hidden">
+        <button id="previewMaxBtn" class="icon-btn" title="预览最大化" aria-label="预览最大化">⤢</button>
+        <button id="btnPreviewClose" class="icon-btn" title="关闭预览" aria-label="关闭预览">✕</button>
+      </div>
       <div id="viewerHost" style="position:absolute; inset:44px 0 0 0"></div>
     </section>
   </div>

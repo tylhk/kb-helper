@@ -1,22 +1,18 @@
-/* ========= 选择器 ========= */
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
-let FOLDERS_RENDER_GEN = 0; // 目录渲染代次
-
-/* ========= 全局状态 ========= */
+let FOLDERS_RENDER_GEN = 0;
 let STATE = {
   resources: [],
-  folders: [], // 扁平路径 '学习/项目A'
+  folders: [],
   tags: [],
   q: "",
   filterFolder: "",
-  selectedId: null, // 选中的资源 id
+  selectedId: null,
 };
 window.__DND__ = { folder: null, res: null };
 const UNCAT = "__UNCAT__";
 document.addEventListener("dragend", () => document.body.classList.remove("dragging-folder"), true);
 document.addEventListener("drop", () => document.body.classList.remove("dragging-folder"), true);
-/* ========= Toast ========= */
 function ensureToast() {
   let w = $("#toastWrap");
   if (!w) {
@@ -39,7 +35,6 @@ function toast(msg, type = "info", ms = 2200) {
   }, ms - 260);
   setTimeout(() => el.remove(), ms);
 }
-/* ========= 使用页面内置弹窗 ========= */
 function openFormModal({
   title,
   bodyHTML,
@@ -47,19 +42,51 @@ function openFormModal({
   okText = "确定",
   cancelText = "取消",
 }) {
-  const modal = $("#modal");
-  const titleEl = $("#modalTitle");
-  const form = $("#modalForm");
-  const okBtn = $("#modalOk");
-  const cancel = $("#modalCancel");
+  const modal = document.getElementById("modal");
+  const titleEl = document.getElementById("modalTitle");
+  const form = document.getElementById("modalForm");
+  const okBtn = document.getElementById("modalOk");
+  const cancel = document.getElementById("modalCancel");
+  const host = document.getElementById('viewerHost');
+  let resumed = false;
+  const resumePreview = () => {
+    if (resumed) return; resumed = true;
+    try {
+      document.body.classList.remove('menu-open');
+      if (host && window.preview?.setBounds) {
+        const r = host.getBoundingClientRect();
+        window.preview.setBounds({
+          width: Math.round(r.width), height: Math.round(r.height)
+        });
+      }
+    } catch { }
+  };
+  try {
+    document.body.classList.add('menu-open');
+    if (host && window.preview?.setBounds) {
+      window.preview.setBounds({ x: 0, y: 0, width: 1, height: 1 });
+    }
+  } catch { }
   if (!modal || !titleEl || !form || !okBtn || !cancel) {
     toast("弹窗初始化失败", "error");
     return;
   }
+
+  okBtn.disabled = false;
+  okBtn.classList.remove("is-disabled");
+  cancel.disabled = false;
+
   titleEl.textContent = title;
   form.innerHTML = bodyHTML;
   okBtn.textContent = okText;
-  cancel.textContent = cancelText;
+
+  if (cancelText === "") {
+    cancel.style.display = "none";
+  } else {
+    cancel.style.display = "";
+    cancel.textContent = cancelText;
+  }
+
   form.querySelectorAll("input,select,textarea").forEach((el) => {
     el.style.padding = "10px";
     el.style.borderRadius = "10px";
@@ -68,21 +95,32 @@ function openFormModal({
     el.style.color = "var(--fg)";
     el.style.outline = "none";
   });
+
+  const oldHandler = form.__kb_submit_handler__;
+  if (oldHandler) form.removeEventListener("submit", oldHandler);
+
   const handler = async (ev) => {
     ev.preventDefault();
     try {
       await onSubmit(new FormData(form));
       modal.classList.add("hidden");
+      resumePreview();
       form.removeEventListener("submit", handler);
+      form.__kb_submit_handler__ = null;
     } catch (err) {
       toast("操作失败：" + (err?.message || err), "error");
     }
   };
   form.addEventListener("submit", handler);
+  form.__kb_submit_handler__ = handler;
+
   cancel.onclick = () => {
     modal.classList.add("hidden");
+    resumePreview();
     form.removeEventListener("submit", handler);
+    form.__kb_submit_handler__ = null;
   };
+
   modal.classList.remove("hidden");
 }
 
@@ -114,15 +152,28 @@ function confirmBox(message, okText = "确定", cancelText = "取消") {
     wrap.classList.remove("hidden");
   });
 }
+
 async function getPreviewURL() {
   return (await window.preview?.getURL?.()) || '';
 }
 
+function setPreviewButtonsVisible(visible) {
+  const wrap = document.getElementById('previewActions');
+  if (wrap) wrap.classList.toggle('hidden', !visible);
+}
+
+(function wireClosePreviewBtn() {
+  const closeBtn = document.getElementById('btnPreviewClose');
+  if (!closeBtn) return;
+  closeBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await openInPreview(null);
+    setPreviewButtonsVisible(false);
+  });
+})();
+
 const urlParams = new URLSearchParams(location.search);
 const IS_OVERLAY = urlParams.get('overlay') === '1';
-
-/* ========= 标签 chips：无下拉建议、只允许已有标签 ========= */
-/* ========= 标签 chips：输入时显示匹配建议；Enter 选建议，否则新建 ========= */
 function setupTagBox(boxSel, inputSel, menuSel, initialTags = []) {
   const box = document.querySelector(boxSel);
   const input = document.querySelector(inputSel);
@@ -131,11 +182,9 @@ function setupTagBox(boxSel, inputSel, menuSel, initialTags = []) {
     menu = document.createElement("div");
     menu.id = menuSel.startsWith("#") ? menuSel.slice(1) : menuSel;
     menu.className = "suggest-menu hidden";
-    // 放在 tagbox 的容器里，继承已有的 .suggest 样式
     box.parentElement.classList.add("suggest");
     box.parentElement.appendChild(menu);
   }
-  // “已有标签库”，用于匹配；但允许创建新标签
   let tagPool = Array.from(new Set((initialTags || []).filter(Boolean)));
   let active = -1;
   const curTags = () =>
@@ -179,7 +228,6 @@ function setupTagBox(boxSel, inputSel, menuSel, initialTags = []) {
     menu.classList.toggle("hidden", list.length === 0);
     if (list.length) setActive(0);
   }
-  // 匹配规则：和搜索栏一致，用“包含匹配”（不区分大小写）
   function filterAndShow() {
     const q = (input.value || "").trim().toLowerCase();
     if (!q) {
@@ -193,7 +241,6 @@ function setupTagBox(boxSel, inputSel, menuSel, initialTags = []) {
       .slice(0, 50);
     draw(list);
   }
-  // 键盘交互：Enter/Tab/逗号/分号 确认；上下键移动高亮；Backspace 删除最后一个
   input.addEventListener("keydown", async (e) => {
     const items = $$("#" + menu.id + " .suggest-item");
     if (e.key === "ArrowDown") {
@@ -210,13 +257,11 @@ function setupTagBox(boxSel, inputSel, menuSel, initialTags = []) {
     }
     if (["Enter", "Tab", ",", ";"].includes(e.key)) {
       const typed = (input.value || "").trim();
-      // 有下拉且有高亮 -> 选中高亮
       if (!menu.classList.contains("hidden") && items.length && active >= 0) {
         e.preventDefault();
         addChip(items[active].textContent.trim());
         return;
       }
-      // 没有高亮：如果正好与已有标签“精确等同”，也直接用；否则创建新标签
       if (typed) {
         e.preventDefault();
         const hit = tagPool.find(
@@ -224,7 +269,6 @@ function setupTagBox(boxSel, inputSel, menuSel, initialTags = []) {
         );
         const chosen = hit || typed;
         addChip(chosen);
-        // 如为新标签，写入全局库，供以后匹配
         if (!hit) {
           try {
             tagPool =
@@ -254,7 +298,6 @@ function setupTagBox(boxSel, inputSel, menuSel, initialTags = []) {
     },
   };
 }
-/* ========= 数据加载 ========= */
 async function refresh() {
   const data = await window.api.list();
   STATE.expanded = STATE.expanded || new Set();
@@ -276,7 +319,6 @@ async function refresh() {
     : deriveFolders(STATE.resources);
   STATE.tags = data.tags || [];
 
-  // 清理无效展开路径
   const valid = new Set(STATE.folders);
   STATE.expanded = new Set([...STATE.expanded].filter(p => valid.has(p)));
 
@@ -284,9 +326,7 @@ async function refresh() {
   renderList();
 }
 
-/* ========= 目录树 ========= */
 function buildTree(paths) {
-  // 计算每个目录前缀（如 "A"、"A/B"）在 flat 列表中“首次出现”的索引
   const firstIndex = new Map();
   (paths || []).forEach((p, i) => {
     const segs = (p || "").split("/").filter(Boolean);
@@ -308,7 +348,6 @@ function buildTree(paths) {
       if (!node) {
         node = { name, path: next, depth: idx + 1, children: [] };
         cur.children.push(node);
-        // 关键：同级按首次出现的索引稳定排序
         cur.children.sort((a, b) =>
           (firstIndex.get(a.path) ?? 1e9) - (firstIndex.get(b.path) ?? 1e9)
         );
@@ -327,7 +366,6 @@ function renderFolders() {
   ul.classList.add("tree");
   ul.innerHTML = "";
 
-  // 顶部特殊项
   ul.appendChild(makeSpecialEntry(
     "根目录",
     "",
@@ -338,28 +376,23 @@ function renderFolders() {
   if (uncatCount > 0) {
     ul.appendChild(makeSpecialEntry("[未分类链接]", UNCAT, STATE.filterFolder === UNCAT, uncatCount));
   }
-
-  // 构树并渲染（递归）
   const tree = buildTree(STATE.folders);
   const frag = document.createDocumentFragment();
   for (const node of tree) frag.appendChild(makeFolderLi(node));
   ul.appendChild(frag);
 
-  // 展开中的容器，首次渲染时矫正高度，保证动画起点正确
   requestAnimationFrame(() => {
     $$(".folder-item.expanded > .children").forEach(ch => {
       ch.style.maxHeight = ch.scrollHeight + "px";
     });
   });
 }
-// 让所有已展开祖先的 .children 跟着内容变化更新高度
 function bumpAncestorHeights(fromLi) {
   let p = fromLi && fromLi.parentElement;
   while (p) {
     if (p.classList?.contains('children')) {
-      const pli = p.parentElement; // <li.folder-item>
+      const pli = p.parentElement;
       if (pli?.classList?.contains('expanded')) {
-        // 先清零触发一次 reflow，再用新的 scrollHeight
         p.style.maxHeight = '0px';
         void p.offsetHeight;
         p.style.maxHeight = p.scrollHeight + 'px';
@@ -369,17 +402,13 @@ function bumpAncestorHeights(fromLi) {
   }
 }
 
-
-
 function openFolderMenuFloating(menuEl, anchorBtn) {
   const rect = anchorBtn.getBoundingClientRect();
   const originLi = anchorBtn.closest("li.folder-item");
   menuEl.__originLi = originLi;
-
   menuEl.classList.remove("hidden");
   menuEl.classList.add("floating-menu");
   document.body.appendChild(menuEl);
-
   const minW = Math.max(rect.width, 160);
   menuEl.style.minWidth = minW + "px";
   menuEl.style.left = rect.left + "px";
@@ -388,20 +417,16 @@ function openFolderMenuFloating(menuEl, anchorBtn) {
   menuEl.style.maxWidth = "280px";
   menuEl.style.width = "max-content";
   menuEl.style.whiteSpace = "nowrap";
-
   document.body.classList.add("menu-open");
   requestAnimationFrame(() => {
     const vw = window.innerWidth, vh = window.innerHeight;
     const mw = menuEl.offsetWidth, mh = menuEl.offsetHeight;
-    // 右对齐到按钮：左 = 按钮右边 - 菜单宽度，且做可视区夹紧
     let left = Math.min(Math.max(rect.right - mw, 8), vw - 8 - mw);
-    // 底部容不下就翻到上方
     let top = rect.bottom + 4;
     if (top + mh > vh - 8) top = Math.max(8, rect.top - 4 - mh);
     menuEl.style.left = left + "px";
     menuEl.style.top = top + "px";
   });
-
 }
 
 function countLinksUnder(pathKey) {
@@ -417,24 +442,16 @@ function countLinksUnder(pathKey) {
   return n;
 }
 
-
-// 替换整个 makeSpecialEntry 函数
 function makeSpecialEntry(label, key, active, count = null) {
   const isRoot = (key || "") === "";
   const li = document.createElement('li');
   li.className = 'folder-item ' + (isRoot ? 'depth-0 root-entry' : 'depth-1');
   li.dataset.path = key;
-
-  // 一行三列：箭头占位 | 名称(+徽章) | 右侧功能区
   const row = document.createElement('div');
   row.className = 'folder-row';
-
-  // 1) 左：与文件夹箭头同宽的占位，保证缩进一致
   const spacer = document.createElement('span');
   spacer.className = 'arrow-spacer';
   row.appendChild(spacer);
-
-  // 2) 中：名称 + 计数
   const nameWrap = document.createElement('div');
   nameWrap.className = 'name-wrap';
   const text = document.createElement('span');
@@ -450,7 +467,6 @@ function makeSpecialEntry(label, key, active, count = null) {
   }
   row.appendChild(nameWrap);
 
-  // 3) 右：根目录的「＋」放这里（未分类不放）
   const right = document.createElement('div');
   if (isRoot) {
     const plus = document.createElement('button');
@@ -468,18 +484,16 @@ function makeSpecialEntry(label, key, active, count = null) {
   li.appendChild(row);
 
   if (active) {
-    row.classList.add('active'); // 行高亮落在 .folder-row 上
+    row.classList.add('active');
   }
 
   li.onclick = () => {
     STATE.filterFolder = key;
     STATE.selectedId = null;
-    openInPreview(null);
     renderFolders();
     renderList();
   };
 
-  // 仅根目录接收放置（保留你现有逻辑）
   if (isRoot) {
     li.ondragover = (e) => {
       const types = e.dataTransfer?.types || [];
@@ -502,10 +516,8 @@ function makeSpecialEntry(label, key, active, count = null) {
       document.body.classList.remove('dragging-folder');
     };
   }
-
   return li;
 }
-
 
 async function openCreateRootFolder() {
   await openFormModal({
@@ -519,7 +531,6 @@ async function openCreateRootFolder() {
     onSubmit: async (fd) => {
       const name = (fd.get('name') || '').toString().trim();
       if (!name) throw new Error('请输入名称');
-      // 校验同级重名
       if (STATE.folders.some(f => f.split('/').length === 1 && f === name)) {
         throw new Error('已存在同名根目录');
       }
@@ -530,15 +541,12 @@ async function openCreateRootFolder() {
   });
 }
 function expandChildren(el) {
-  // 先从当前高度动画到实际高度
   el.style.overflow = 'hidden';
   const h = el.scrollHeight;
   el.style.maxHeight = h + 'px';
-  // 动画结束后解锁高度，避免后续回流把它压回去
   const onEnd = (e) => {
     if (e.propertyName !== 'max-height') return;
     el.removeEventListener('transitionend', onEnd);
-    // 仍处于展开态才解锁
     if (el.parentElement?.classList.contains('expanded')) {
       el.style.maxHeight = 'none';
     }
@@ -547,11 +555,10 @@ function expandChildren(el) {
 }
 
 function collapseChildren(el) {
-  // 从“实际高度”动画回 0
   el.style.overflow = 'hidden';
   const h = el.scrollHeight;
   el.style.maxHeight = h + 'px';
-  void el.offsetHeight;          // 强制回流，确保过渡生效
+  void el.offsetHeight;
   el.style.maxHeight = '0px';
 }
 
@@ -562,12 +569,8 @@ function makeFolderLi(node) {
   li.className = `folder-item depth-${depth}` + (hasChildren ? " has-children" : "");
   li.dataset.path = node.path;
   li.style.position = "relative";
-
-  // —— 行：箭头 | 名称 | 三点 —— //
   const row = document.createElement("div");
   row.className = "folder-row";
-
-  // 箭头（仅非根且有子目录）
   let arrowBtn = null;
   if (hasChildren && depth >= 1) {
     arrowBtn = document.createElement("button");
@@ -582,34 +585,25 @@ function makeFolderLi(node) {
     row.appendChild(spacer);
   }
 
-  // 名称
   const nameWrap = document.createElement("div");
   nameWrap.className = "name-wrap";
-
   const nameEl = document.createElement("span");
   nameEl.className = "folder-name";
   nameEl.textContent = node.name;
-
   const badge = document.createElement("span");
   badge.className = "count-badge";
   badge.textContent = String(countLinksUnder(node.path));
-
   nameWrap.append(nameEl, badge);
   row.appendChild(nameWrap);
-  // 三点菜单按钮（kebab）
   const kebab = document.createElement("button");
   kebab.className = "kebab";
   kebab.type = "button";
-  kebab.textContent = "⋯"; // 也可用图标
+  kebab.textContent = "⋯";
   row.appendChild(kebab);
-
-  // 打开浮层菜单（已存在的函数）
   kebab.onclick = (e) => {
     e.stopPropagation();
     openFolderMenuFloating(menu, kebab);
   };
-
-  // 菜单
   const menu = document.createElement("div");
   menu.className = "folder-menu hidden";
   menu.innerHTML = `
@@ -618,50 +612,35 @@ function makeFolderLi(node) {
     <div data-act="rename-folder">重命名</div>
     <div class="danger" data-act="delete-folder">删除该文件夹</div>
   `;
-
   li.appendChild(row);
   li.appendChild(menu);
-
-  // —— 子容器：用于“推/收”动画 —— //
   const childrenWrap = document.createElement("div");
   childrenWrap.className = "children";
   li.appendChild(childrenWrap);
-
-  // 递归渲染子项
   if (hasChildren) {
     const frag = document.createDocumentFragment();
     for (const child of node.children) frag.appendChild(makeFolderLi(child));
     childrenWrap.appendChild(frag);
   }
-
-  // 初始展开态（根据 STATE.expanded）
   if (STATE.expanded?.has?.(node.path)) {
     li.classList.add("expanded");
     childrenWrap.style.maxHeight = 'none';
   }
-
-  // 交互：点击“整行（排除箭头/三点/菜单）”= 选中该目录
   row.addEventListener("click", (e) => {
     if (e.target === arrowBtn || e.target === kebab || menu.contains(e.target)) return;
     STATE.filterFolder = node.path;
     STATE.selectedId = null;
-    openInPreview(null);
     renderFolders();
     renderList();
   });
 
-
-  // 交互：点击箭头 = 就地展开/收回（保留 DOM ⇒ 有动画 & 箭头旋转）
   if (arrowBtn) {
     arrowBtn.onclick = (e) => {
       e.stopPropagation();
       const willExpand = !li.classList.contains("expanded");
       li.classList.toggle("expanded", willExpand);
-
       if (willExpand) {
         STATE.expanded.add(node.path);
-
-        // 如极少数情况下子节点还未挂载，补挂一遍
         if (!childrenWrap.hasChildNodes() && node.children && node.children.length) {
           const frag = document.createDocumentFragment();
           for (const child of node.children) frag.appendChild(makeFolderLi(child));
@@ -674,11 +653,6 @@ function makeFolderLi(node) {
         collapseChildren(childrenWrap);
         bumpAncestorHeights(li);
       }
-      STATE.filterFolder = node.path;
-      STATE.selectedId = null;
-      openInPreview(null);
-      renderList();
-
     };
   }
 
@@ -688,7 +662,7 @@ function makeFolderLi(node) {
     e.stopPropagation();
     document.body.classList.add("dragging-folder");
     e.dataTransfer.setData("text/kb-folder", node.path);
-    e.dataTransfer.setData("text/plain", "KB:FOLDER:" + node.path); // 兜底
+    e.dataTransfer.setData("text/plain", "KB:FOLDER:" + node.path);
     window.__DND__.folder = node.path;
     e.dataTransfer.effectAllowed = "move";
     li.classList.add("drag-ghost");
@@ -698,17 +672,13 @@ function makeFolderLi(node) {
     li.classList.remove("drag-ghost");
   });
 
-  // 预览线
   const line = document.createElement("div"); line.className = "drop-line"; li.appendChild(line);
-
   li.ondragover = (e) => {
-    // ① 探测是否拖的是我们支持的类型（兼容 Chromium dragover 读不到自定义类型）
     const types = e.dataTransfer?.types || [];
     const maybeFolder = types.includes("text/kb-folder") || types.includes("text/plain");
     const maybeRes = types.includes("text/kb-resource") || types.includes("text/plain");
     if (!(maybeFolder || maybeRes)) return;
 
-    // ② 解析源（优先自定义 MIME，兜底 text/plain 前缀）
     let srcFolder = e.dataTransfer.getData("text/kb-folder");
     let srcRes = e.dataTransfer.getData("text/kb-resource");
     if (!srcFolder && !srcRes) {
@@ -716,49 +686,32 @@ function makeFolderLi(node) {
       if (plain.startsWith("KB:FOLDER:")) srcFolder = plain.slice("KB:FOLDER:".length);
       if (plain.startsWith("KB:RES:")) srcRes = plain.slice("KB:RES:".length);
     }
-    // ★ 关键兜底：dragover 阶段很多浏览器读不到 getData，用我们在 dragstart 里存的全局状态
     if (!srcFolder && !srcRes && window.__DND__) {
       if (window.__DND__.folder) srcFolder = window.__DND__.folder;
       if (window.__DND__.res) srcRes = window.__DND__.res;
     }
-    // 只有是“我们”的拖拽才继续（这句保留不变）
     if (!srcFolder && !srcRes) return;
 
-
-    // ③ 目标/来源信息 & 能力判断（你的原有逻辑）
     const tgt = li.dataset.path;
     const depthOf = (p) => (p ? p.split("/").filter(Boolean).length : 0);
     const parentOf = (p) => (p ? p.split("/").slice(0, -1).join("/") : "");
     const isInSubtree = (a, b) => a === b || a.startsWith(b + "/");
-
-    // 拖文件夹：同级同父才允许“排序”；不是自身/子树才允许“并为子目录”
     const sameDepth = srcFolder ? depthOf(srcFolder) === depthOf(tgt) : false;
     const sameParent = srcFolder ? parentOf(srcFolder) === parentOf(tgt) : false;
     const canReorder = !!srcFolder && sameDepth && sameParent && !isInSubtree(tgt, srcFolder) && !isInSubtree(srcFolder, tgt);
     const canNest = !!srcFolder && !isInSubtree(tgt, srcFolder) && srcFolder !== tgt;
-
-    // 拖资源：永远允许“放进这个文件夹”
     const canDropRes = !!srcRes;
-
-    // ④ 没有任何可执行操作就别阻止默认（让浏览器忽略这次 hover）
     if (!(canReorder || canNest || canDropRes)) return;
-
     e.preventDefault(); e.stopPropagation();
-
-    // ⑤ 画预览：用“行”的矩形判断上/中/下
     const r = row.getBoundingClientRect();
     const y = Math.max(r.top, Math.min(e.clientY, r.bottom));
     const frac = (y - r.top) / Math.max(1, r.height);
-
     li.classList.add("drag-over");
     li.classList.toggle("show-top", canReorder && frac < 0.25);
     li.classList.toggle("show-bottom", canReorder && frac > 0.75);
     li.classList.toggle("as-child", (canNest || canDropRes) && frac >= 0.25 && frac <= 0.75);
-
     e.dataTransfer.dropEffect = "move";
   };
-
-
 
   li.ondragleave = (e) => {
     e.stopPropagation();
@@ -768,34 +721,25 @@ function makeFolderLi(node) {
     e.preventDefault(); e.stopPropagation();
     li.classList.remove("drag-over", "show-top", "show-bottom", "as-child");
     document.body.classList.remove("dragging-folder");
-
     const src = e.dataTransfer.getData("text/kb-folder") || window.__DND__?.folder || "";
     const res = e.dataTransfer.getData("text/kb-resource");
     const tgt = li.dataset.path;
-
     if (res) {
       await window.api.updateResource(res, { folder: tgt });
       toast("已移动到：" + tgt);
       await refresh(); return;
     }
     if (!src) return;
-
     const depthOf = (p) => (p ? p.split("/").filter(Boolean).length : 0);
     const parentOf = (p) => (p ? p.split("/").slice(0, -1).join("/") : "");
     const isInSubtree = (a, b) => a === b || a.startsWith(b + "/");
-
     if (tgt === src || isInSubtree(tgt, src)) { toast("不能移动到自身或子目录", "error"); return; }
-
     const sameDepth = depthOf(src) === depthOf(tgt);
     const sameParent = parentOf(src) === parentOf(tgt);
     const canReorder = sameDepth && sameParent;
-
-    // 计算落点区域（按 row）
     const r = row.getBoundingClientRect();
     const y = Math.max(r.top, Math.min(e.clientY, r.bottom));
     const frac = (y - r.top) / Math.max(1, r.height);
-
-    // 优先“排序”，仅当可排序时才认定上下；否则尝试并为子目录
     if (canReorder && (frac < 0.25 || frac > 0.75)) {
       const area = (frac < 0.25) ? "top" : "bottom";
       const ordered = reorderFolders(STATE.folders, src, tgt, area);
@@ -803,15 +747,12 @@ function makeFolderLi(node) {
       await refresh();
       return;
     }
-
-    // 并为子目录（中间区域）
     if (frac >= 0.25 && frac <= 0.75) {
       await window.api.moveFolder({ sourcePath: src, targetParentPath: tgt });
       await refresh();
     }
   };
 
-  // 菜单：浮到 body，防点透
   menu.addEventListener("mousedown", (e) => e.stopPropagation());
   menu.addEventListener("click", (e) => e.stopPropagation());
   kebab.onclick = (e) => {
@@ -829,13 +770,9 @@ function makeFolderLi(node) {
     else if (act === "rename-folder") openRenameFolder(node.path);
     else if (act === "delete-folder") deleteFolderWithConfirm(node.path);
   };
-
-  // 选中态：只高亮“行”，不罩住子级
   if (STATE.filterFolder === node.path) row.classList.add("active");
-
   return li;
 }
-
 
 function closeAllFolderMenus() {
   $$(".folder-menu").forEach((m) => {
@@ -851,39 +788,22 @@ function closeAllFolderMenus() {
 }
 window.addEventListener("scroll", closeAllFolderMenus, true);
 window.addEventListener("resize", closeAllFolderMenus);
-
-
-
-
-// 把 srcPath 这棵子树（srcPath 以及所有以它为前缀的路径）
-// 当成一个整体，在 flat 列表里移动到 targetPath 这棵子树的上/下。
 function reorderFolders(all, srcPath, targetPath, area) {
   const isInSubtree = (p, base) => p === base || p.startsWith(base + "/");
   const arr = [...all];
-
-  // 取出 src 子树块（保持相对顺序）
   const srcBlock = arr.filter(p => isInSubtree(p, srcPath));
   if (!srcBlock.length) return all;
-
-  // 去掉 src 子树
   let rest = arr.filter(p => !isInSubtree(p, srcPath));
-
-  // 找到 target 子树在 rest 里的区间
   const idxs = rest.map((p, i) => [p, i]).filter(([p]) => isInSubtree(p, targetPath)).map(([, i]) => i);
   if (!idxs.length) return all;
-
-  // 不能把一棵树插到自己内部
   if (isInSubtree(targetPath, srcPath)) return all;
-
   const tStart = Math.min(...idxs);
   const tEnd = Math.max(...idxs) + 1;
   const insertAt = area === "bottom" ? tEnd : tStart;
-
   rest.splice(insertAt, 0, ...srcBlock);
   return rest;
 }
 
-/* ========= 资源列表（仅选中时预览） ========= */
 function inScope(r) {
   if (STATE.filterFolder === "") return true;
   if (STATE.filterFolder === UNCAT) return !r.folder;
@@ -910,7 +830,7 @@ function renderList() {
     empty.textContent = "点击此处添加第一条链接";
     empty.addEventListener("click", (e) => {
       e.stopPropagation();
-      openCreateLink(); // 会自动把“当前文件夹”带到弹窗里
+      openCreateLink();
     });
     list.appendChild(empty);
     openInPreview(null);
@@ -939,13 +859,11 @@ function renderList() {
         <button data-edit>编辑</button>
         <button data-del>删除</button>
       </div>`;
-    // 点击卡片：选中 + 预览
     el.addEventListener("click", () => {
       STATE.selectedId = r.id;
       renderList();
       openInPreview(r.url);
     });
-    // 按钮不冒泡
     el.querySelectorAll(".actions button").forEach((b) => {
       Object.assign(b.style, {
         background: "#13161b",
@@ -971,7 +889,6 @@ function renderList() {
         refresh();
       }
     };
-    // 可拖动
     el.draggable = true;
     el.ondragstart = (e) => {
       e.dataTransfer.setData("text/kb-resource", r.id);
@@ -979,7 +896,6 @@ function renderList() {
       e.dataTransfer.effectAllowed = "move";
       el.classList.add("drag-ghost");
 
-      // ← 移进来（正确）
       window.__DND__.res = r.id;
       document.body.classList.add("dragging-folder");
     };
@@ -990,26 +906,21 @@ function renderList() {
     };
     list.appendChild(el);
   }
-  // 如果当前选中项不在过滤后列表里，自动取消预览
   if (STATE.selectedId && !filtered.some((x) => x.id === STATE.selectedId)) {
     STATE.selectedId = null;
-    openInPreview(null);
   }
 }
 async function openInPreview(url) {
-  if (!url) {
+  if (!url || !/^https?:\/\//i.test(url)) {
+    if (url && !/^https?:/i.test(url)) toast("仅支持 http/https 预览", "error");
     await window.preview?.load?.('about:blank');
-    return;
-  }
-  if (!/^https?:\/\//i.test(url)) {
-    toast("仅支持 http/https 预览", "error");
-    await window.preview?.load?.('about:blank');
+    setPreviewButtonsVisible(false);
     return;
   }
   await window.preview?.load?.(url);
+  setPreviewButtonsVisible(true);
 }
 
-/* ========= 新建 / 编辑 ========= */
 function openCreateLink() {
   openCreateLinkTo(STATE.filterFolder === UNCAT ? "" : STATE.filterFolder);
 }
@@ -1068,7 +979,6 @@ function initSplitter() {
   split.addEventListener('mousedown', (e) => {
     dragging = true;
     startX = e.clientX;
-    // 当前预览宽（从 CSS 变量或计算得出）
     const cur = $get('--preview-w') || document.querySelector('.preview')?.getBoundingClientRect().width || 0;
     startPreviewW = clampPreview(cur);
     setPreviewW(startPreviewW);
@@ -1078,7 +988,6 @@ function initSplitter() {
   window.addEventListener('mousemove', (e) => {
     if (!dragging) return;
     const dx = e.clientX - startX;
-    // 分隔条向左拖，预览变宽；向右拖，预览变窄
     let w = startPreviewW - dx;
     const clamped = clampPreview(w);
     setPreviewW(clamped);
@@ -1106,9 +1015,15 @@ function initSplitter() {
   window.addEventListener('mouseup', end);
   window.addEventListener('mouseleave', end);
   window.addEventListener('resize', () => {
-    // 窗口缩放时也夹紧一次，避免溢出造成错觉
     const cur = $get('--preview-w') || document.querySelector('.preview')?.getBoundingClientRect().width || 0;
     setPreviewW(clampPreview(cur));
+  });
+  requestAnimationFrame(() => {
+    const cur = $get('--preview-w')
+      || document.querySelector('.preview')?.getBoundingClientRect().width
+      || 0;
+    setPreviewW(clampPreview(cur));
+    window.dispatchEvent(new Event('resize'));
   });
 }
 
@@ -1166,7 +1081,6 @@ function openCreateSubFolder(parentPath) {
       await window.api.addFolder(path);
       STATE.filterFolder = path;
       STATE.selectedId = null;
-      openInPreview(null);
       await refresh();
       toast("已创建：" + path);
     },
@@ -1183,7 +1097,6 @@ function openRenameFolder(path) {
     onSubmit: async (fd) => {
       const name = (fd.get("name") || "").toString().trim();
       if (!name) throw new Error("请输入新名称");
-      // 同级重名校验（前端简单校验）
       const parent = path.split("/").slice(0, -1).join("/");
       const siblingPrefix = parent ? `${parent}/` : "";
       const sameLevel = STATE.folders.filter(
@@ -1195,7 +1108,6 @@ function openRenameFolder(path) {
         throw new Error("同级已存在同名文件夹");
       }
       await window.api.renameFolder({ sourcePath: path, newName: name });
-      // 如果当前正浏览该目录或其子树，更新 STATE.filterFolder
       if (
         STATE.filterFolder === path ||
         STATE.filterFolder.startsWith(path + "/")
@@ -1217,7 +1129,6 @@ async function deleteFolderWithConfirm(path) {
   );
   if (!ok) return;
   await window.api.deleteFolder(path);
-  // 如果当前正在查看被删目录或其子树，则切回根目录
   if (
     STATE.filterFolder === path ||
     STATE.filterFolder.startsWith(path + "/")
@@ -1229,7 +1140,6 @@ async function deleteFolderWithConfirm(path) {
   await refresh();
   toast("已删除：" + path);
 }
-/* ========= 搜索 & 新建按钮（不再下拉，直连新建链接） ========= */
 function bindSearch() {
   const q = $("#q");
   if (q)
@@ -1244,9 +1154,8 @@ function bindNewButton() {
   btn.onclick = (e) => {
     e.stopPropagation();
     openCreateLink();
-  }; // 直连“新建链接”
+  };
 }
-/* ========= 工具 ========= */
 function esc(s = "") {
   return s.replace(
     /[&<>\"']/g,
@@ -1259,10 +1168,8 @@ function esc(s = "") {
 function escAttr(s = "") {
   return esc(s).replace(/"/g, "&quot;");
 }
-// 监听来自主进程的 deeplink
 if (window.deeplink?.onAdd) {
   window.deeplink.onAdd(({ url, title, folder }) => {
-    // folder 可能是完整路径（如 "学习/项目A"）
     openCreateLinkWithPreset({
       url: url || "",
       title: title || "",
@@ -1305,29 +1212,23 @@ function openCreateLinkWithPreset(preset = {}) {
   const tbox = setupTagBox("#tagBox", "#tagInput", "#tagSuggest", STATE.tags);
   document.querySelector("#tagInput")?.focus();
 }
-// 点击页面空白处关闭所有菜单
 document.addEventListener("click", () => {
   closeAllFolderMenus();
 });
-// 滚动或窗口尺寸变化时也收起，避免菜单“悬空”
 window.addEventListener("scroll", () => closeAllFolderMenus(), true);
 window.addEventListener("resize", () => closeAllFolderMenus());
-// —— 等待 window.api 可用（最多等 3 秒），避免未就绪就报错 ——
-// 把你原来直接调用 init() 的地方改为：bootstrap();
 async function bootstrap() {
   const start = Date.now();
   while (!window.api || typeof window.api.list !== "function") {
     if (Date.now() - start > 3000) {
-      // 3 秒还没好，抛明确的错误并给出帮助
       console.error("[bootstrap] window.api 未就绪：", window.api);
       toast("预加载未就绪（window.api 不可用）", "error");
       return;
     }
     await new Promise((r) => setTimeout(r, 100));
   }
-  // 预加载就绪，继续你原本的流程
   try {
-    await init(); // ← 这里就是你原来调用的初始化函数
+    await init();
     if (window.ops?.onChanged) {
       let t = null;
       window.ops.onChanged(() => {
@@ -1337,7 +1238,7 @@ async function bootstrap() {
             const local = await window.api.list();
             if (window.auth?.syncNow) await window.auth.syncNow(local);
           } catch (e) { }
-        }, 800); // 800ms 防抖
+        }, 800);
       });
     }
   } catch (e) {
@@ -1350,7 +1251,6 @@ function initFullscreenControls() {
   if (!btn) return;
 
   const enter = async () => {
-    // 先解除窗口大小限制（新 API，下面会在 preload/main 中实现）
     try {
       await window.win?.resize?.free?.();
     } catch { }
@@ -1359,7 +1259,6 @@ function initFullscreenControls() {
     btn.textContent = '⤡';
     btn.title = '退出预览最大化';
 
-    // 等两帧，确保 DOM 布局稳定后再下发 bounds
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
     const host = document.getElementById('viewerHost');
@@ -1372,7 +1271,6 @@ function initFullscreenControls() {
     }
     await window.preview?.focus?.();
 
-    // 极少数机器上首帧还未稳定：再补一次
     setTimeout(() => {
       const h = document.getElementById('viewerHost');
       if (h && window.preview?.setBounds) {
@@ -1383,25 +1281,17 @@ function initFullscreenControls() {
         });
       }
     }, 50);
-
     showHint();
   };
 
-  // 退出“预览填充满”
   const exit = async () => {
-    // ★ 关键：先把 BrowserView 立即缩到极小，避免盖住 UI
     try {
       window.preview?.setBounds?.({ x: 0, y: 0, width: 1, height: 1 });
     } catch { }
-
     document.body.classList.remove('preview-max');
     btn.textContent = '⤢';
     btn.title = '预览最大化';
-
-    // 等两帧让 DOM 回到“正常布局”
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-
-    // 再把 BrowserView 放回宿主区域
     const host = document.getElementById('viewerHost');
     if (host && window.preview?.setBounds) {
       const r = host.getBoundingClientRect();
@@ -1410,9 +1300,7 @@ function initFullscreenControls() {
         width: Math.round(r.width), height: Math.round(r.height)
       });
     }
-
     try { await window.win?.resize?.restore?.(); } catch { }
-
     void document.body.offsetHeight;
     if (typeof layoutPreview === 'function') {
       layoutPreview();
@@ -1433,10 +1321,7 @@ function initFullscreenControls() {
     if (document.body.classList.contains('preview-max')) await exit();
     else await enter();
   };
-
   btn.addEventListener('click', (e) => { e.preventDefault(); toggle(); });
-
-  // 本页焦点时
   document.addEventListener('keydown', async (e) => {
     if (e.key === 'F11') {
       e.preventDefault();
@@ -1451,8 +1336,6 @@ function initFullscreenControls() {
       if (document.body.classList.contains('preview-max')) await exit();
     }
   }, { capture: true });
-
-  // 主进程转发的硬键（webview 焦点也能收到）
   if (window.keys?.on) {
     window.keys.on(async ({ key }) => {
       if (key === 'F11') {
@@ -1467,8 +1350,6 @@ function initFullscreenControls() {
       }
     });
   }
-
-  // overlay 模式初始化：只显示预览
   if (IS_OVERLAY) {
     document.body.classList.add('preview-max', 'overlay');
     const url = urlParams.get('url');
@@ -1515,7 +1396,6 @@ function initFullscreenControls() {
     }, 2200);
   }
 }
-// ===== 账号菜单与认证逻辑 =====
 function bindAccountUI() {
   const btn = document.getElementById('accountBtn');
   const menu = document.getElementById('accountMenu');
@@ -1525,6 +1405,7 @@ function bindAccountUI() {
     const me = await window.auth?.whoami?.();
     const logged = !!(me && me.user && me.token);
     menu.innerHTML = logged ? `
+  <button class="item" data-act="account-info">账号信息</button>
   <button class="item" data-act="view-cloud">查看云端数据</button>
   <button class="item" data-act="sync">同步数据</button>
   <button class="item" data-act="logout">取消登录</button>
@@ -1532,12 +1413,12 @@ function bindAccountUI() {
   <button class="item" data-act="login">登录</button>
   <button class="item" data-act="register">注册</button>
 `;
+
   }
 
   btn.addEventListener('click', async (e) => {
     e.stopPropagation();
     await redraw();
-    // 计算菜单位置（右上角对齐按钮）
     const rect = btn.getBoundingClientRect();
     menu.style.minWidth = '240px';
     menu.style.top = (rect.bottom + 6) + 'px';
@@ -1595,40 +1476,102 @@ function bindAccountUI() {
     } else if (act === 'view-cloud') {
       const data = await window.auth.fetchCloud();
       openJsonViewer('云端数据（只读）', data);
+    } else if (act === 'account-info') {
+      try {
+        const me = await window.auth.accountInfo();
+        const regStr = String(me?.registeredAt || '').replace(' ', 'T');
+        const regLocal = regStr ? new Date(regStr + 'Z').toLocaleString() : '-';
+        const esc = (s) => String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+        openFormModal({
+          title: '账号信息',
+          okText: '更改密码',
+          cancelText: '关闭',
+          bodyHTML: `
+            <div class="kv">
+              <div>账号</div><div>${esc(me?.username)}</div>
+              <div>邮箱</div><div>${esc(me?.email)}</div>
+              <div>注册时间</div><div>${esc(regLocal)}</div>
+              <div>总文件夹数</div><div>${me?.counts?.folders ?? 0}</div>
+              <div>总标签数</div><div>${me?.counts?.tags ?? 0}</div>
+            </div>
+    
+            <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px;">
+              <label style="display:block;margin-bottom:6px;">新密码</label>
+              <input type="password" id="npwd" placeholder="输入新密码" style="width:100%;height:36px;">
+            </div>
+    
+            <div style="margin-top:10px;">
+              <label style="display:block;margin-bottom:6px;">确认新密码</label>
+              <input type="password" id="npwd2" placeholder="再次输入新密码" style="width:100%;height:36px;">
+              <div id="pwdHint" style="margin-top:6px;font-size:12px;color:#f87171;"></div>
+            </div>
+          `,
+          onSubmit: async () => {
+            const v1 = document.getElementById('npwd').value.trim();
+            const v2 = document.getElementById('npwd2').value.trim();
+            if (v1.length < 4) {
+              document.getElementById('pwdHint').textContent = '新密码至少 4 位';
+              throw new Error('新密码至少 4 位');
+            }
+            if (v1 !== v2) {
+              document.getElementById('pwdHint').textContent = '两次输入不一致';
+              throw new Error('两次输入不一致');
+            }
+            await window.auth.changePassword(v1);
+            toast('密码已更改');
+          }
+        });
+
+        const modal = document.getElementById('modal');
+        const actions = modal.querySelector('.modal-actions');
+        const okBtn = modal.querySelector('#modalOk');
+        const cancel = modal.querySelector('#modalCancel');
+        actions.querySelectorAll('[data-extra="json"]').forEach(n => n.remove());
+        actions.insertBefore(okBtn, actions.firstChild);
+        cancel.style.marginLeft = 'auto';
+        const np = modal.querySelector('#npwd');
+        const np2 = modal.querySelector('#npwd2');
+        const hint = modal.querySelector('#pwdHint');
+        const refresh = () => {
+          const v1 = np.value.trim();
+          const v2 = np2.value.trim();
+          let ok = v1.length >= 4 && v1 === v2;
+          okBtn.disabled = !ok;
+          hint.textContent = (!v1 && !v2) ? '' : (v1 === v2 ? '' : '两次输入不一致');
+        };
+        okBtn.disabled = true;
+        np.addEventListener('input', refresh);
+        np2.addEventListener('input', refresh);
+        refresh();
+      } catch (err) {
+        alert('获取账号信息失败：' + (err?.message || err));
+      }
     }
     menu.classList.add('hidden');
     document.body.classList.remove('menu-open');
   });
 }
 
-// 启动时绑定账号UI，并做自动同步
 async function trySyncNow(showToast = false) {
   try {
     const local = await window.api.list();
     const result = await window.auth.syncNow(local);
     if (showToast) toast(result?.changed ? '已同步（合并去重）' : '已是最新');
-    // 如服务端有变更，主动刷新渲染
     if (result?.changed) await refresh();
   } catch (e) { if (showToast) toast('同步失败：' + (e.message || e), 'error'); }
 }
 
-// 首次加载 & 定时自动同步
 (function () {
-  // 你的初始化流程：bootstrap/init 之后调用
-  // 若你已有 init()，在它完成后调用这两个：
   bindAccountUI();
   setInterval(() => trySyncNow(false), 60 * 1000); // 每分钟自动同步
 })();
 
-// 用现有的表单模态 (#modal) 打开只读 JSON 视图；注意参数顺序：(title, obj)
 function openJsonViewer(title, obj) {
   const pretty = JSON.stringify(obj ?? {}, null, 2);
 
-  // 1) 缩小 BrowserView，避免遮住按钮
   let restored = false;
   const restorePreview = () => {
-    if (restored) return;
-    restored = true;
+    if (restored) return; restored = true;
     try {
       const host = document.getElementById('viewerHost');
       if (host && window.preview?.setBounds) {
@@ -1638,7 +1581,7 @@ function openJsonViewer(title, obj) {
           width: Math.round(r.width), height: Math.round(r.height)
         });
       }
-    } catch {}
+    } catch { }
     document.body.classList.remove('menu-open');
   };
   try {
@@ -1646,49 +1589,40 @@ function openJsonViewer(title, obj) {
     if (host && window.preview?.setBounds) {
       window.preview.setBounds({ x: 0, y: 0, width: 1, height: 1 });
     }
-  } catch {}
+  } catch { }
   document.body.classList.add('menu-open');
-
-  // 2) 复用 openFormModal 画出中心弹窗（去掉取消按钮，统一按钮样式）
   openFormModal({
     title,
-    bodyHTML: `
-      <textarea id="jsonView" class="json-view" readonly>${pretty}</textarea>
-    `,
-    onSubmit: () => {},          // 只是关闭
+    bodyHTML: `<textarea id="jsonView" class="json-view" readonly>${pretty}</textarea>`,
+    onSubmit: () => { },
     okText: '关闭',
-    cancelText: ''               // 不显示取消
+    cancelText: ''
   });
-
   const modal = document.getElementById('modal');
-  const okBtn = document.getElementById('modalOk');
-  const cancelBtn = document.getElementById('modalCancel');
-  if (cancelBtn) cancelBtn.style.display = 'none';
-
-  // 在 actions 区追加“复制 / 下载JSON”两个按钮（样式跟随 .modal-actions）
   const actions = modal.querySelector('.modal-actions');
-  const mkBtn = (txt) => { const b=document.createElement('button'); b.textContent=txt; return b; };
-  const copyBtn = mkBtn('复制');
-  const saveBtn = mkBtn('下载JSON');
+  const okBtn = modal.querySelector('#modalOk');
+  actions.querySelectorAll('[data-extra="json"]').forEach(n => n.remove());
+  const mk = (txt, handler) => {
+    const b = document.createElement('button');
+    b.textContent = txt;
+    b.dataset.extra = 'json';
+    b.onclick = handler;
+    return b;
+  };
+  const ta = document.getElementById('jsonView');
+  const copyBtn = mk('复制', () => navigator.clipboard.writeText(ta.value));
+  const saveBtn = mk('下载JSON', () => {
+    const blob = new Blob([ta.value], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'cloud-data.json'; a.click();
+    URL.revokeObjectURL(url);
+  });
   actions.insertBefore(copyBtn, okBtn);
   actions.insertBefore(saveBtn, okBtn);
-
-  const ta = document.getElementById('jsonView');
-  copyBtn.onclick = () => navigator.clipboard.writeText(ta.value);
-  saveBtn.onclick = () => {
-    const blob = new Blob([ta.value], {type:'application/json'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href=url; a.download='cloud-data.json'; a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  // 3) 关闭时恢复 BrowserView
   okBtn.addEventListener('click', restorePreview, { once: true });
-  cancelBtn?.addEventListener('click', restorePreview, { once: true });
   window.addEventListener('beforeunload', restorePreview, { once: true });
 }
 
-/* ========= 启动 ========= */
 (function init() {
   bindSearch();
   bindNewButton();
@@ -1710,6 +1644,14 @@ function openJsonViewer(title, obj) {
       width: Math.round(r.width), height: Math.round(r.height)
     });
   }
-  window.addEventListener('resize', layoutPreview);
+  window.addEventListener('resize', () => requestAnimationFrame(layoutPreview));
   layoutPreview();
+  if (window.ResizeObserver) {
+    const host = document.getElementById('viewerHost');
+    const ro = new ResizeObserver(() => {
+      requestAnimationFrame(layoutPreview);
+    });
+    if (host) ro.observe(host);
+  }
+  getPreviewURL().then(u => setPreviewButtonsVisible(/^https?:\/\//i.test(u)));
 })();
